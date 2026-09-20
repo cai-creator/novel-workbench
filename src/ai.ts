@@ -84,7 +84,7 @@ export async function generateDraft(args: {
 }
 
 /** 根据已确认的作品资料与相邻章节写可审阅的正文候选，不修改作品。 */
-export function chapterProsePrompt(book: Book, chapterId: string, instruction: string, targetLength: number): { system: string; user: string } {
+export function chapterProsePrompt(book: Book, chapterId: string, instruction: string, targetLength: number, kind: 'continue' | 'rewrite' = 'continue'): { system: string; user: string } {
   const index = book.chapters.findIndex(item => item.id === chapterId)
   if (index < 0) throw new Error('目标章节已不存在')
   const chapter = book.chapters[index]
@@ -99,16 +99,16 @@ export function chapterProsePrompt(book: Book, chapterId: string, instruction: s
       lore && `已确认的作品资料：\n${lore}`,
       previous && `上一章「${previous.title}」结尾（仅用于承接，不要重复）：\n${previous.content.slice(-2600) || previous.outline?.slice(-800) || '暂无'}`,
       `当前章节：${chapter.title}\n本章提纲：${chapter.outline?.trim() || '尚未填写，请按作品核心和前文自然推进。'}`,
-      chapter.content.trim() && `本章已有正文结尾（若要求续写，请直接接上）：\n${chapter.content.slice(-2600)}`,
+      chapter.content.trim() && (kind === 'rewrite' ? `本章现稿（只作参考；请重新构思写法，不要逐句改写）：\n${chapter.content.slice(0, 2600)}` : `本章已有正文结尾（直接接上，不要重复）：\n${chapter.content.slice(-2600)}`),
       next?.outline && `下一章边界（留伏笔，不提前展开）：${next.outline.slice(0, 500)}`,
-      `本次目标：约 ${targetLength} 个汉字，写出完整场景和至少一次明确推进。${chapter.content.trim() ? '如果没有特别要求，接续本章已有正文。' : '从本章开头写起。'}`,
+      `本次目标：约 ${targetLength} 个汉字，写出完整场景和至少一次明确推进。${kind === 'rewrite' || !chapter.content.trim() ? '从本章开头写一份完整的新稿，与现稿可独立比较。' : '接续本章已有正文，不重复开头。'}`,
       instruction.trim() && `作者额外要求：${instruction.trim().slice(0, 1200)}`,
     ].filter(Boolean).join('\n\n'),
   }
 }
 
-export async function generateChapterProse(args: { model: ModelSettings; book: Book; chapterId: string; instruction: string; targetLength: number; signal: AbortSignal }): Promise<string> {
-  const { model, book, chapterId, instruction, targetLength, signal } = args
-  const prompt = chapterProsePrompt(book, chapterId, instruction, targetLength)
+export async function generateChapterProse(args: { model: ModelSettings; book: Book; chapterId: string; instruction: string; targetLength: number; kind: 'continue' | 'rewrite'; signal: AbortSignal }): Promise<string> {
+  const { model, book, chapterId, instruction, targetLength, kind, signal } = args
+  const prompt = chapterProsePrompt(book, chapterId, instruction, targetLength, kind)
   return requestChatCompletion({ model, system: prompt.system, user: prompt.user, signal, maxTokens: Math.min(6500, Math.max(2400, targetLength * 3)) })
 }

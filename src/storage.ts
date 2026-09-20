@@ -8,15 +8,19 @@ export interface Chapter {
   content: string
   updatedAt: string
   history?: ChapterVersion[]
-  proseCandidate?: ChapterProseCandidate
+  proseCandidates?: ChapterProseCandidate[]
+  /** 旧版单候选字段，仅用于读取迁移。 */
+  proseCandidate?: Omit<ChapterProseCandidate, 'id' | 'kind'>
 }
 
 export interface ChapterProseCandidate {
+  id: string
   content: string
   instruction: string
   createdAt: string
   /** 生成时章节正文的更新时间，用于提示候选稿可能已过期。 */
   baseUpdatedAt: string
+  kind: 'continue' | 'rewrite'
 }
 
 export interface ChapterVersion {
@@ -72,6 +76,21 @@ const STORAGE_KEY = 'novel-workbench-next/v1'
 export const uid = () => crypto.randomUUID()
 export const now = () => new Date().toISOString()
 
+/** 兼容此前的单候选作品，并过滤备份中的无效候选。 */
+export function migrateProseCandidates(chapter: Chapter): void {
+  const source = Array.isArray(chapter.proseCandidates) && chapter.proseCandidates.length ? chapter.proseCandidates : chapter.proseCandidate ? [chapter.proseCandidate] : []
+  const normalized = source.filter(item => item && typeof item.content === 'string' &&
+    typeof item.instruction === 'string' && typeof item.createdAt === 'string' &&
+    Number.isFinite(Date.parse(item.createdAt)) && typeof item.baseUpdatedAt === 'string')
+    .map(item => ({ id: 'id' in item && typeof item.id === 'string' && item.id ? item.id : uid(),
+      content: item.content, instruction: item.instruction, createdAt: item.createdAt,
+      baseUpdatedAt: item.baseUpdatedAt,
+      kind: 'kind' in item && item.kind === 'rewrite' ? 'rewrite' : 'continue' } satisfies ChapterProseCandidate))
+  if (normalized.length) chapter.proseCandidates = normalized
+  else delete chapter.proseCandidates
+  delete chapter.proseCandidate
+}
+
 /** 留存章稿，跳过与最新版本相同的内容，并限制浏览器内的历史体积。 */
 export function recordChapterVersion(chapter: Chapter, source: ChapterVersion['source']): ChapterVersion | null {
   const history = chapter.history ||= []
@@ -94,7 +113,10 @@ export function createBook(title: string): Book {
 export function loadData(): ProjectData {
   try {
     const parsed: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null')
-    if (isProjectData(parsed)) return parsed
+    if (isProjectData(parsed)) {
+      for (const book of parsed.books) for (const chapter of book.chapters) migrateProseCandidates(chapter)
+      return parsed
+    }
   } catch { /* 损坏数据保留在浏览器里，避免自动覆盖 */ }
   return { version: 1, books: [], model: { baseUrl: '', model: '', apiKey: '' } }
 }
@@ -138,13 +160,14 @@ export function importBookJson(value: unknown): Book {
       ['manual', 'ai', 'restore'].includes(version.source))
       .slice(0, 30).map(version => ({ id: uid(), title: version.title, content: version.content,
         savedAt: version.savedAt, source: version.source })) : []
-    const candidate = item.proseCandidate
-    const proseCandidate = candidate && typeof candidate.content === 'string' &&
-      typeof candidate.instruction === 'string' && typeof candidate.createdAt === 'string' &&
-      Number.isFinite(Date.parse(candidate.createdAt)) && typeof candidate.baseUpdatedAt === 'string'
-      ? { content: candidate.content, instruction: candidate.instruction, createdAt: candidate.createdAt,
-          baseUpdatedAt: candidate.baseUpdatedAt === item.updatedAt ? updatedAt : candidate.baseUpdatedAt } : undefined
-    return { id, title: item.title, outline: typeof item.outline === 'string' ? item.outline : '', content: item.content, updatedAt, history, proseCandidate }
+    const chapter: Chapter = { id, title: item.title, outline: typeof item.outline === 'string' ? item.outline : '', content: item.content, updatedAt, history,
+      proseCandidates: item.proseCandidates, proseCandidate: item.proseCandidate }
+    migrateProseCandidates(chapter)
+    for (const candidate of chapter.proseCandidates || []) {
+      candidate.id = uid()
+      if (candidate.baseUpdatedAt === item.updatedAt) candidate.baseUpdatedAt = updatedAt
+    }
+    return chapter
   })
   const lore = source.lore.map(item => ({ id: uid(), title: item.title, content: item.content,
     mode: item.mode, timeLabel: typeof item.timeLabel === 'string' ? item.timeLabel : undefined }))

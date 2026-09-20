@@ -735,7 +735,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .production-outline strong { color: #a94c6e; font-size: 11px; }
 .production-outline p { margin: 6px 0 0; color: #826b7c; font-size: 12px; line-height: 1.8; white-space: pre-wrap; }
 .production-controls { padding-bottom: 20px; border-bottom: 1px solid #eee2e9; }
-.production-fields { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 12px; }
+.production-fields { display: grid; grid-template-columns: 145px 145px minmax(0, 1fr); gap: 12px; }
 .production-fields label, .production-adopt label { color: #71576a; font-size: 11px; font-weight: 700; }
 .production-fields select, .production-fields textarea, .production-adopt select { display: block; width: 100%; margin-top: 7px; padding: 9px 11px; border: 1px solid #e5d6e0; border-radius: 8px; color: #5e485a; background: #fff; font-size: 12px; font-weight: 400; }
 .production-fields textarea { height: 70px; line-height: 1.6; resize: vertical; }
@@ -747,7 +747,25 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .production-section-head h3 span { color: #ad879d; font: 400 11px system-ui, sans-serif; }
 .production-section-head time { color: #a894a2; font-size: 10px; }
 .production-warning { padding: 9px 11px; border-radius: 7px; color: #985c36; background: #fff3dc; font-size: 11px; }
-.production-candidate > textarea { width: 100%; min-height: 310px; margin-top: 15px; padding: 21px; border: 1px solid #eadde4; border-radius: 10px; color: #443943; background: var(--paper); font-family: "Noto Serif SC", "Songti SC", SimSun, serif; font-size: 15px; line-height: 2; resize: vertical; }
+.production-delete { padding: 7px 0; border: 0; color: #bd7185; background: transparent; font-size: 11px; }
+.production-delete:hover { color: #a3395b; text-decoration: underline; }
+.production-variants { display: flex; gap: 8px; overflow-x: auto; margin-top: 17px; padding-bottom: 4px; }
+.production-variants button { min-width: 125px; padding: 10px 12px; border: 1px solid #ebdfe7; border-radius: 9px; color: #806779; background: #fff; text-align: left; }
+.production-variants button.active { border-color: #e992aa; color: #a94268; background: #fff0f5; }
+.production-variants strong, .production-variants span { display: block; white-space: nowrap; }
+.production-variants strong { font-size: 11px; }
+.production-variants span { margin-top: 4px; font-size: 10px; }
+.production-candidate-meta { display: flex; justify-content: space-between; gap: 14px; margin-top: 12px; color: #9a8794; font-size: 10px; line-height: 1.6; }
+.production-candidate-meta time { flex: none; }
+.production-compare-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 18px 0 9px; }
+.production-compare-toolbar strong { color: #674b60; font-size: 11px; }
+.production-compare-toolbar button { padding: 6px 10px; font-size: 10px; }
+.production-compare { display: grid; grid-template-columns: 1fr; gap: 12px; }
+.production-compare.comparing { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.production-text-panel { min-width: 0; }
+.production-text-panel > span { display: block; margin: 0 0 7px; color: #a86c84; font-size: 10px; font-weight: 700; }
+.production-text-panel textarea { width: 100%; min-height: 310px; padding: 18px; border: 1px solid #eadde4; border-radius: 10px; color: #443943; background: var(--paper); font-family: "Noto Serif SC", "Songti SC", SimSun, serif; font-size: 14px; line-height: 1.9; resize: vertical; }
+.production-text-panel textarea[readonly] { color: #766874; background: #f9f6f5; }
 .production-adopt { display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-top: 12px; }
 .production-adopt label { width: min(240px, 55%); }
 .production-adopt button { flex: none; font-size: 12px; }
@@ -756,4 +774,4 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .production-existing summary { color: #965c78; font-size: 11px; font-weight: 700; cursor: pointer; }
 .production-existing details > div { max-height: 360px; overflow-y: auto; margin-top: 10px; padding: 20px; border: 1px solid #eee4e9; border-radius: 9px; color: #6f5e69; background: #fff; font-family: "Noto Serif SC", "Songti SC", SimSun, serif; font-size: 13px; line-height: 2; white-space: pre-wrap; }
 @media (max-width: 800px) { .production-layout { grid-template-columns: 1fr; } .production-chapters { display: flex; overflow-x: auto; } .production-list-title { min-width: 90px; flex-direction: column; align-items: start; justify-content: center; } .production-chapters > button { width: 175px; flex: none; } }
-@media (max-width: 600px) { .production-shell { width: calc(100% - 22px); padding-top: 12px; } .production-hero { align-items: start; flex-direction: column; padding: 22px; } .production-hero h1 { font-size: 25px; } .production-summary { grid-template-columns: repeat(3, 1fr); gap: 5px; } .production-summary > div { padding: 10px; } .production-summary strong { font-size: 17px; } .production-summary button { grid-column: 1 / -1; } .production-stage { padding: 20px 15px; } .production-fields { grid-template-columns: 1fr; } .production-generate { align-items: stretch; flex-direction: column; } .production-adopt { align-items: stretch; flex-direction: column; } .production-adopt label { width: 100%; } }
+@media (max-width: 600px) { .production-shell { width: calc(100% - 22px); padding-top: 12px; } .production-hero { align-items: start; flex-direction: column; padding: 22px; } .production-hero h1 { font-size: 25px; } .production-summary { grid-template-columns: repeat(3, 1fr); gap: 5px; } .production-summary > div { padding: 10px; } .production-summary strong { font-size: 17px; } .production-summary button { grid-column: 1 / -1; } .production-stage { padding: 20px 15px; } .production-fields { grid-template-columns: 1fr; } .production-generate { align-items: stretch; flex-direction: column; } .production-compare.comparing { grid-template-columns: 1fr; } .production-adopt { align-items: stretch; flex-direction: column; } .production-adopt label { width: 100%; } }

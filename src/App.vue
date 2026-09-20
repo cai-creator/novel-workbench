@@ -7,6 +7,7 @@
         <button v-if="screen !== 'shelf'" class="quiet" @click="goShelf">作品书架</button>
         <button v-else-if="book" class="quiet" @click="screen = 'editor'">返回写作</button>
         <button v-if="screen !== 'workflow'" class="quiet" @click="openWorkflow">工作流建书</button>
+        <button v-if="screen !== 'workflow-history'" class="quiet" @click="openWorkflowHistory">建书记录 <span class="top-count">{{ workflowRecordCount }}</span></button>
         <button class="quiet" @click="importInput?.click()">导入作品</button>
         <input ref="importInput" type="file" accept=".json,application/json" hidden @change="handleImport" />
         <button v-if="screen === 'editor'" class="quiet" @click="exportBook" :disabled="!book">导出作品</button>
@@ -19,7 +20,7 @@
         <header class="workflow-hero"><small>STORY LAB · 从灵感到可写的书</small><h1>建立你的下一部连载</h1><p>四步完成可编辑的创意、大纲与设定。每份 AI 候选都由你决定是否采纳。</p></header>
         <nav class="workflow-steps" aria-label="建书步骤"><button v-for="item in workflowSteps" :key="item.step" type="button" :class="{ active: workflow.step === item.step, done: workflow.step > item.step }" @click="workflow.step = item.step"><span>{{ String(item.step).padStart(2, '0') }}</span>{{ item.label }}</button></nav>
         <section class="workflow-card">
-          <div class="workflow-card-head"><div><small>第 {{ workflow.step }} 步 / 共 4 步</small><h2>{{ workflowSteps[workflow.step - 1].title }}</h2><p>{{ workflowSteps[workflow.step - 1].description }}</p></div><button class="workflow-reset" @click="resetWorkflow">清空草稿</button></div>
+          <div class="workflow-card-head"><div><small>第 {{ workflow.step }} 步 / 共 4 步</small><h2>{{ workflowSteps[workflow.step - 1].title }}</h2><p>{{ workflowSteps[workflow.step - 1].description }}</p></div><div class="workflow-card-links"><button class="workflow-reset" @click="openWorkflowHistory">查看记录</button><button class="workflow-reset" @click="startNewWorkflow">保存并新建</button></div></div>
           <div v-if="workflow.step === 1" class="workflow-fields">
             <div class="workflow-field-row"><label>作品类型<input v-model="workflow.genre" placeholder="例如：都市悬疑、玄幻冒险" /></label><label>目标读者<input v-model="workflow.audience" placeholder="例如：喜欢快节奏悬疑的读者" /></label><label>叙事风格<input v-model="workflow.tone" placeholder="例如：克制、诡谲、带少量幽默" /></label></div>
             <label>原始灵感<textarea v-model="workflow.seed" placeholder="哪怕只有一句话：主角遇到了什么异常？他非解决不可的事是什么？" /></label>
@@ -46,11 +47,32 @@
       </div>
     </main>
 
+    <main v-else-if="screen === 'workflow-history'" class="workflow-page">
+      <div class="workflow-shell">
+        <header class="workflow-hero"><small>STORY LAB · 建书记录</small><h1>故事从这里接着长大</h1><p>继续未完成的草稿，或把过去的方案复制成新的创作方向。</p></header>
+        <section class="workflow-history-panel">
+          <div class="workflow-history-head"><div><small>YOUR PROJECTS</small><h2>建书记录 <span>{{ workflowRecordCount }}</span></h2></div><div class="workflow-history-head-actions"><button class="secondary" :disabled="!workflowRecordCount" @click="exportWorkflowRecords">导出记录</button><button class="secondary" @click="workflowImportInput?.click()">导入记录</button><input ref="workflowImportInput" type="file" accept=".json,application/json" hidden @change="handleWorkflowImport" /><button class="primary" @click="startNewWorkflow">＋ 新建草稿</button></div></div>
+          <div class="workflow-history-filters" role="group" aria-label="建书记录筛选"><button v-for="item in workflowHistoryFilters" :key="item.id" :class="{ active: workflowHistoryFilter === item.id }" @click="workflowHistoryFilter = item.id">{{ item.label }}</button></div>
+          <p v-if="workflowHistoryError" class="workflow-error" role="alert">{{ workflowHistoryError }}</p>
+          <p v-if="workflowHistoryNotice" class="workflow-history-notice" role="status">{{ workflowHistoryNotice }}</p>
+          <div v-if="!workflowRecords.length" class="workflow-history-empty"><span>✦</span><h3>{{ workflowHistoryFilter === 'all' ? '还没有建书记录' : '这一类还没有记录' }}</h3><p>从一条灵感开始，创作方向和大纲会自动留在这里。</p><button class="primary" @click="startNewWorkflow">开始新故事</button></div>
+          <div v-else class="workflow-history-grid">
+            <article v-for="record in workflowRecords" :key="record.id" class="workflow-history-card">
+              <div class="workflow-history-card-head"><span :class="record.status">{{ record.status === 'draft' ? '未完成草稿' : '已建书' }}</span><time :datetime="record.updatedAt">{{ formatVersionTime(record.updatedAt) }}</time></div>
+              <h3>{{ workflowRecordTitle(record) }}</h3><p>{{ record.draft.idea || record.draft.seed || '这份草稿尚未写下创意。' }}</p>
+              <div class="workflow-history-meta"><span>{{ record.draft.genre || '类型未定' }}</span><span>{{ parseChapterPlan(record.draft.outline).length }} 个章节规划</span><span v-if="record.status === 'draft'">第 {{ record.draft.step }} 步</span></div>
+              <div class="workflow-history-actions"><button v-if="record.status === 'draft'" class="primary" @click="resumeWorkflowRecord(record.id)">继续编辑</button><button v-else-if="data.books.some(item => item.id === record.bookId)" class="primary" @click="openCompletedBook(record)">打开作品</button><span v-else class="missing-book">作品已不在当前书架</span><button class="secondary" @click="duplicateWorkflowRecord(record.id)">复制为新草稿</button><button class="workflow-delete" :aria-label="`删除 ${workflowRecordTitle(record)} 的建书记录`" @click="deleteWorkflowRecord(record.id)">删除</button></div>
+            </article>
+          </div>
+        </section>
+      </div>
+    </main>
+
     <main v-else-if="screen === 'shelf'" class="shelf-page">
       <div class="shelf-inner">
         <section class="shelf-hero">
           <div><small>我的连载书房</small><h1>每一个故事，都有下一章。</h1><p>在这里整理作品，随时回到最近写下的那一章。</p>
-            <div class="shelf-hero-actions"><button class="primary large" @click="openWorkflow">✦ 工作流建书</button><button class="shelf-import" @click="addBook">手动创建 →</button><button class="shelf-import" @click="importInput?.click()">导入已有作品 →</button></div>
+            <div class="shelf-hero-actions"><button class="primary large" @click="openWorkflow">✦ 工作流建书</button><button class="shelf-import" @click="openWorkflowHistory">建书记录 →</button><button class="shelf-import" @click="addBook">手动创建 →</button><button class="shelf-import" @click="importInput?.click()">导入已有作品 →</button></div>
           </div>
           <div class="shelf-hero-art" aria-hidden="true"><span>故</span><span>事</span><span>未</span><span>完</span></div>
         </section>
@@ -253,14 +275,35 @@ import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { generateDraft, requestChatCompletion } from './ai'
 import { designFixture } from './design-fixture'
 import { createBook, importBookJson, loadData, now, recordChapterVersion, saveData, uid, type Book, type ChatEntry, type ChapterVersion, type LoreMode, type Mode } from './storage'
-import { buildBookFromWorkflow, clearWorkflow, emptyWorkflow, loadWorkflow, parseChapterPlan, saveWorkflow, workflowPrompt, type WorkflowDraft, type WorkflowField } from './workflow'
+import { buildBookFromWorkflow, createWorkflowRecord, emptyWorkflow, exportWorkflowArchive, importWorkflowArchive, loadWorkflowArchive, parseChapterPlan, saveWorkflowArchive, workflowPrompt, type WorkflowArchive, type WorkflowDraft, type WorkflowField, type WorkflowRecord } from './workflow'
 
 const designPreview = import.meta.env.DEV && new URLSearchParams(location.search).has('ui-preview')
 const data = ref(designPreview ? designFixture() : loadData())
 const importInput = ref<HTMLInputElement | null>(null)
+const workflowImportInput = ref<HTMLInputElement | null>(null)
 const previewPanel = designPreview ? new URLSearchParams(location.search).get('panel') : null
-const screen = ref<'shelf' | 'editor' | 'workflow'>(previewPanel === 'workflow' ? 'workflow' : !data.value.books.length || previewPanel === 'shelf' ? 'shelf' : 'editor')
-const workflow = ref<WorkflowDraft>(designPreview ? emptyWorkflow() : loadWorkflow())
+const screen = ref<'shelf' | 'editor' | 'workflow' | 'workflow-history'>(previewPanel === 'workflow' ? 'workflow' : previewPanel === 'workflow-history' ? 'workflow-history' : !data.value.books.length || previewPanel === 'shelf' ? 'shelf' : 'editor')
+function designWorkflowArchive(): WorkflowArchive {
+  const draft = createWorkflowRecord({ ...emptyWorkflow(), step: 2, title: '星门长夜', genre: '东方奇幻', seed: '每个人在成年那天都能看见自己的终局。', idea: '一个看不见终局的少年，被帝国认定为灾厄。他必须在三十天内找出预言失效的原因。', outline: '第1章｜看不见的终局｜成人礼上，主角的命盘一片空白\n第2章｜追捕令｜帝国使者抵达村庄' })
+  draft.id = 'design-workflow-draft'
+  draft.updatedAt = '2026-09-20T09:30:00.000Z'
+  const completed = createWorkflowRecord({ ...emptyWorkflow(), step: 4, title: '夜行者档案', genre: '都市悬疑', idea: '林澈追查在所有人记忆中消失的妹妹。', outline: '第1章｜午夜之后｜第十三声钟响' })
+  completed.id = 'design-workflow-completed'
+  completed.status = 'completed'
+  completed.bookId = 'design-book'
+  completed.updatedAt = '2026-09-19T16:00:00.000Z'
+  completed.completedAt = completed.updatedAt
+  return { version: 2, activeId: draft.id, records: [draft, completed] }
+}
+const workflowArchive = ref<WorkflowArchive>(designPreview ? previewPanel === 'workflow-history' ? designWorkflowArchive() : { version: 2, activeId: null, records: [] } : loadWorkflowArchive())
+const workflow = ref<WorkflowDraft>({ ...(workflowArchive.value.records.find(item => item.id === workflowArchive.value.activeId)?.draft || emptyWorkflow()) })
+const workflowHistoryFilter = ref<'all' | 'draft' | 'completed'>('all')
+const workflowHistoryFilters = [{ id: 'all', label: '全部' }, { id: 'draft', label: '未完成' }, { id: 'completed', label: '已建书' }] as const
+const workflowHistoryError = ref('')
+const workflowHistoryNotice = ref('')
+const workflowRecords = computed(() => [...workflowArchive.value.records].filter(item => workflowHistoryFilter.value === 'all' || item.status === workflowHistoryFilter.value).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)))
+const workflowRecordCount = computed(() => workflowArchive.value.records.length)
+const workflowRecordTitle = (record: WorkflowRecord) => record.draft.title.trim() || record.draft.idea.trim().slice(0, 24) || record.draft.seed.trim().slice(0, 24) || '未命名草稿'
 const workflowSteps = [
   { step: 1, label: '创作方向', title: '让灵感有一个抓手', description: '先确定类型、读者和故事的核心冲突。' },
   { step: 2, label: '故事骨架', title: '从创意走到章节', description: '定下书名、主线与前几章的具体推进。' },
@@ -364,8 +407,16 @@ watch(workflow, () => {
 function flushWorkflowSave() {
   if (designPreview || screen.value !== 'workflow') return
   if (workflowSaveTimer) clearTimeout(workflowSaveTimer)
-  try { saveWorkflow(workflow.value); workflowSaveStatus.value = '草稿已保存在本机' }
-  catch { workflowSaveStatus.value = '草稿保存失败：请检查浏览器存储空间' }
+  const record = workflowArchive.value.records.find(item => item.id === workflowArchive.value.activeId && item.status === 'draft')
+  if (!record) return
+  record.draft = { ...workflow.value }
+  record.updatedAt = now()
+  persistWorkflowArchive()
+}
+function persistWorkflowArchive(): boolean {
+  if (designPreview) return true
+  try { saveWorkflowArchive(workflowArchive.value); workflowSaveStatus.value = '草稿已保存在本机'; workflowHistoryError.value = ''; return true }
+  catch { workflowSaveStatus.value = '建书记录保存失败：请检查浏览器存储空间'; workflowHistoryError.value = workflowSaveStatus.value; return false }
 }
 
 function flushSave() {
@@ -379,33 +430,111 @@ onMounted(() => window.addEventListener('beforeunload', flushSave))
 onBeforeUnmount(() => { window.removeEventListener('beforeunload', flushSave); workflowController?.abort(); flushSave() })
 
 function goShelf() {
-  if (screen.value === 'workflow') { flushWorkflowSave(); workflowController?.abort(); workflowCandidate.value = null }
+  if (screen.value === 'workflow') { flushWorkflowSave(); cancelWorkflowGeneration(); workflowCandidate.value = null }
   screen.value = 'shelf'
 }
-function openWorkflow() { workflowError.value = ''; screen.value = 'workflow' }
-function resetWorkflow() {
-  if (!confirm('确定清空当前建书草稿？已填写的创意、大纲和设定将被删除。')) return
-  workflowController?.abort()
-  workflow.value = emptyWorkflow()
+function openWorkflow() {
+  const active = workflowArchive.value.records.find(item => item.id === workflowArchive.value.activeId && item.status === 'draft')
+  if (active) resumeWorkflowRecord(active.id)
+  else startNewWorkflow()
+}
+function openWorkflowHistory() {
+  if (screen.value === 'workflow') flushWorkflowSave()
+  cancelWorkflowGeneration()
   workflowCandidate.value = null
+  screen.value = 'workflow-history'
+}
+function startNewWorkflow() {
+  if (screen.value === 'workflow') flushWorkflowSave()
+  cancelWorkflowGeneration()
+  workflowCandidate.value = null
+  const record = createWorkflowRecord()
+  workflowArchive.value.records.unshift(record)
+  workflowArchive.value.activeId = record.id
+  workflow.value = { ...record.draft }
   workflowError.value = ''
-  if (!designPreview) clearWorkflow()
+  screen.value = 'workflow'
+  persistWorkflowArchive()
+}
+function resumeWorkflowRecord(id: string) {
+  if (screen.value === 'workflow' && workflowArchive.value.activeId !== id) flushWorkflowSave()
+  const record = workflowArchive.value.records.find(item => item.id === id && item.status === 'draft')
+  if (!record) return
+  cancelWorkflowGeneration()
+  workflowCandidate.value = null
+  workflowArchive.value.activeId = id
+  workflow.value = { ...record.draft }
+  workflowError.value = ''
+  screen.value = 'workflow'
+  persistWorkflowArchive()
+}
+function duplicateWorkflowRecord(id: string) {
+  const source = workflowArchive.value.records.find(item => item.id === id)
+  if (!source) return
+  cancelWorkflowGeneration()
+  const record = createWorkflowRecord(source.draft)
+  workflowArchive.value.records.unshift(record)
+  workflowArchive.value.activeId = record.id
+  workflow.value = { ...record.draft }
+  workflowError.value = ''
+  screen.value = 'workflow'
+  persistWorkflowArchive()
+}
+function deleteWorkflowRecord(id: string) {
+  const record = workflowArchive.value.records.find(item => item.id === id)
+  if (!record || !confirm(`删除「${workflowRecordTitle(record)}」的建书记录？已经创建的作品不会被删除。`)) return
+  workflowArchive.value.records = workflowArchive.value.records.filter(item => item.id !== id)
+  if (workflowArchive.value.activeId === id) { workflowArchive.value.activeId = null; workflow.value = emptyWorkflow() }
+  persistWorkflowArchive()
+}
+function openCompletedBook(record: WorkflowRecord) {
+  if (record.bookId && data.value.books.some(item => item.id === record.bookId)) selectBook(record.bookId)
+}
+function exportWorkflowRecords() {
+  const payload = exportWorkflowArchive(workflowArchive.value)
+  const url = URL.createObjectURL(new Blob([payload], { type: 'application/json' }))
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `建书记录-${new Date().toISOString().slice(0, 10)}.json`
+  link.click()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+async function handleWorkflowImport(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  workflowHistoryError.value = ''
+  workflowHistoryNotice.value = ''
+  if (file.size > 20 * 1024 * 1024) { workflowHistoryError.value = '文件超过 20MB，无法导入。'; return }
+  try {
+    const records = importWorkflowArchive(JSON.parse(await file.text()))
+    if (!records.length) { workflowHistoryNotice.value = '文件中没有建书记录。'; return }
+    const previous = workflowArchive.value.records
+    workflowArchive.value.records = [...records, ...previous]
+    if (!persistWorkflowArchive()) { workflowArchive.value.records = previous; throw new Error('浏览器空间不足，建书记录未导入。') }
+    workflowHistoryFilter.value = 'all'
+    workflowHistoryNotice.value = `已导入 ${records.length} 条记录；完成记录中的作品请单独导入。`
+  } catch (error) { workflowHistoryError.value = error instanceof Error ? error.message : '导入失败，请检查文件内容。' }
 }
 function nextWorkflow() { if (workflow.value.step < 4) workflow.value.step = (workflow.value.step + 1) as WorkflowDraft['step'] }
 function previousWorkflow() { if (workflow.value.step > 1) workflow.value.step = (workflow.value.step - 1) as WorkflowDraft['step'] }
 function stopWorkflow() { workflowController?.abort() }
+function cancelWorkflowGeneration() { workflowController?.abort(); workflowController = null; workflowBusy.value = false }
 async function generateWorkflow(field: WorkflowField) {
   if (workflowBusy.value) return
   if (![workflow.value.seed, workflow.value.idea, workflow.value.genre].some(value => value.trim())) { workflowError.value = '先填写原始灵感或作品类型，再请 AI 生成。'; return }
   workflowError.value = ''
   workflowBusy.value = true
-  workflowController = new AbortController()
+  const requestController = new AbortController()
+  const requestRecordId = workflowArchive.value.activeId
+  workflowController = requestController
   const prompt = workflowPrompt(field, workflow.value)
   try {
-    const text = await requestChatCompletion({ model: data.value.model, system: prompt.system, user: prompt.user, signal: workflowController.signal, maxTokens: field === 'title' ? 80 : field === 'outline' ? 2400 : 1100 })
-    if (screen.value === 'workflow') workflowCandidate.value = { field, text }
-  } catch (error) { if (screen.value === 'workflow') workflowError.value = error instanceof Error ? error.message : String(error) }
-  finally { workflowBusy.value = false; workflowController = null }
+    const text = await requestChatCompletion({ model: data.value.model, system: prompt.system, user: prompt.user, signal: requestController.signal, maxTokens: field === 'title' ? 80 : field === 'outline' ? 2400 : 1100 })
+    if (screen.value === 'workflow' && workflowArchive.value.activeId === requestRecordId && workflowController === requestController) workflowCandidate.value = { field, text }
+  } catch (error) { if (screen.value === 'workflow' && workflowArchive.value.activeId === requestRecordId && workflowController === requestController) workflowError.value = error instanceof Error ? error.message : String(error) }
+  finally { if (workflowController === requestController) { workflowBusy.value = false; workflowController = null } }
 }
 function adoptWorkflowCandidate() {
   if (!workflowCandidate.value) return
@@ -417,11 +546,21 @@ function adoptWorkflowCandidate() {
 function finishWorkflow() {
   try {
     const created = buildBookFromWorkflow(workflow.value)
+    if (!designPreview) saveData({ ...data.value, books: [created, ...data.value.books] })
     data.value.books.unshift(created)
+    const record = workflowArchive.value.records.find(item => item.id === workflowArchive.value.activeId && item.status === 'draft')
+    if (record) {
+      record.draft = { ...workflow.value }
+      record.status = 'completed'
+      record.bookId = created.id
+      record.updatedAt = now()
+      record.completedAt = record.updatedAt
+    }
+    workflowArchive.value.activeId = null
     selectBook(created.id)
     selectedChapterId.value = created.chapters[0].id
     workflow.value = emptyWorkflow()
-    if (!designPreview) clearWorkflow()
+    if (!persistWorkflowArchive()) alert('作品已创建，但建书记录未能保存。请先导出作品备份。')
     flushSave()
   } catch (error) { workflowError.value = error instanceof Error ? error.message : String(error) }
 }

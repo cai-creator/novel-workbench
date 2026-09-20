@@ -15,26 +15,90 @@ export interface WorkflowDraft {
   timeline: string
 }
 
-const STORAGE_KEY = 'novel-workbench-next/workflow-v1'
+const LEGACY_STORAGE_KEY = 'novel-workbench-next/workflow-v1'
+const ARCHIVE_STORAGE_KEY = 'novel-workbench-next/workflow-archive-v2'
+const ARCHIVE_FILE_FORMAT = 'novel-workbench-next/workflow-archive-v2'
 export const emptyWorkflow = (): WorkflowDraft => ({ step: 1, title: '', genre: '', audience: '', tone: '', seed: '', idea: '', outline: '', world: '', characters: '', timeline: '' })
 
-export function loadWorkflow(): WorkflowDraft {
-  try {
-    const value: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null')
-    if (value && typeof value === 'object') {
-      const source = value as Record<string, unknown>
-      const draft = emptyWorkflow()
-      for (const key of ['title', 'genre', 'audience', 'tone', 'seed', 'idea', 'outline', 'world', 'characters', 'timeline'] as const) {
-        if (typeof source[key] === 'string') draft[key] = source[key] as string
-      }
-      if ([1, 2, 3, 4].includes(Number(source.step))) draft.step = Number(source.step) as WorkflowDraft['step']
-      return draft
-    }
-  } catch { /* 损坏草稿不会阻止创建新书 */ }
-  return emptyWorkflow()
+export interface WorkflowRecord {
+  id: string
+  status: 'draft' | 'completed'
+  draft: WorkflowDraft
+  updatedAt: string
+  completedAt?: string
+  bookId?: string
 }
-export function saveWorkflow(draft: WorkflowDraft): void { localStorage.setItem(STORAGE_KEY, JSON.stringify(draft)) }
-export function clearWorkflow(): void { localStorage.removeItem(STORAGE_KEY) }
+export interface WorkflowArchive {
+  version: 2
+  activeId: string | null
+  records: WorkflowRecord[]
+}
+
+const emptyArchive = (): WorkflowArchive => ({ version: 2, activeId: null, records: [] })
+const draftFields = ['title', 'genre', 'audience', 'tone', 'seed', 'idea', 'outline', 'world', 'characters', 'timeline'] as const
+function normalizeDraft(value: unknown): WorkflowDraft {
+  const draft = emptyWorkflow()
+  if (!value || typeof value !== 'object') return draft
+  const source = value as Record<string, unknown>
+  for (const key of draftFields) if (typeof source[key] === 'string') draft[key] = source[key] as string
+  if ([1, 2, 3, 4].includes(Number(source.step))) draft.step = Number(source.step) as WorkflowDraft['step']
+  return draft
+}
+const hasDraftContent = (draft: WorkflowDraft) => draftFields.some(key => draft[key].trim())
+export function createWorkflowRecord(draft: WorkflowDraft = emptyWorkflow()): WorkflowRecord {
+  return { id: uid(), status: 'draft', draft: { ...draft }, updatedAt: now() }
+}
+
+/** 首次读取时接续旧版单草稿；原值在成功保存新版记录后才删除。 */
+export function loadWorkflowArchive(): WorkflowArchive {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(ARCHIVE_STORAGE_KEY) || 'null')
+    if (value && typeof value === 'object') {
+      const source = value as Partial<WorkflowArchive>
+      if (source.version === 2 && Array.isArray(source.records)) {
+        const records = source.records.filter(item => item && typeof item.id === 'string' &&
+          ['draft', 'completed'].includes(item.status) && typeof item.updatedAt === 'string' &&
+          Number.isFinite(Date.parse(item.updatedAt)))
+          .map(item => ({ id: item.id, status: item.status, draft: normalizeDraft(item.draft), updatedAt: item.updatedAt,
+            completedAt: typeof item.completedAt === 'string' && Number.isFinite(Date.parse(item.completedAt)) ? item.completedAt : undefined,
+            bookId: typeof item.bookId === 'string' ? item.bookId : undefined }))
+        const activeId = records.some(item => item.id === source.activeId && item.status === 'draft') ? source.activeId! : null
+        return { version: 2, records, activeId }
+      }
+    }
+  } catch { /* 无法读取的记录保留在原存储键，不自动覆盖 */ }
+  try {
+    const legacy: unknown = JSON.parse(localStorage.getItem(LEGACY_STORAGE_KEY) || 'null')
+    const draft = normalizeDraft(legacy)
+    if (hasDraftContent(draft)) {
+      const record = createWorkflowRecord(draft)
+      return { version: 2, activeId: record.id, records: [record] }
+    }
+  } catch { /* 无法读取的旧草稿保留在原存储键 */ }
+  return emptyArchive()
+}
+export function saveWorkflowArchive(archive: WorkflowArchive): void {
+  localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(archive))
+  localStorage.removeItem(LEGACY_STORAGE_KEY)
+}
+export function exportWorkflowArchive(archive: WorkflowArchive): string {
+  return JSON.stringify({ format: ARCHIVE_FILE_FORMAT, records: archive.records }, null, 2)
+}
+/** 导入的记录重新分配 ID；作品内容仍需单独导入，完成记录不会自动绑定作品。 */
+export function importWorkflowArchive(value: unknown): WorkflowRecord[] {
+  if (!value || typeof value !== 'object') throw new Error('不是有效的建书记录文件')
+  const payload = value as { format?: unknown; records?: unknown }
+  if (payload.format !== ARCHIVE_FILE_FORMAT || !Array.isArray(payload.records) || payload.records.length > 200 ||
+      !payload.records.every(item => item && typeof item === 'object' &&
+        ['draft', 'completed'].includes(item.status) && item.draft && typeof item.draft === 'object')) {
+    throw new Error('建书记录文件格式不受支持或记录超过 200 条。')
+  }
+  return payload.records.map(item => ({
+    id: uid(), status: item.status as WorkflowRecord['status'], draft: normalizeDraft(item.draft),
+    updatedAt: typeof item.updatedAt === 'string' && Number.isFinite(Date.parse(item.updatedAt)) ? item.updatedAt : now(),
+    completedAt: typeof item.completedAt === 'string' && Number.isFinite(Date.parse(item.completedAt)) ? item.completedAt : undefined,
+  }))
+}
 
 export function parseChapterPlan(outline: string): { title: string; outline: string }[] {
   const result: { title: string; outline: string }[] = []

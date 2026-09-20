@@ -84,8 +84,9 @@
               <div class="production-variants" role="tablist" aria-label="正文候选版本"><button v-for="(candidate, index) in chapter.proseCandidates" :key="candidate.id" type="button" role="tab" :aria-selected="selectedProseCandidate.id === candidate.id" :class="{ active: selectedProseCandidate.id === candidate.id }" @click="selectProductionCandidate(candidate.id)"><strong>方案 {{ String(index + 1).padStart(2, '0') }}</strong><span>{{ candidate.kind === 'rewrite' ? '从头重写' : '续写' }} · {{ countWords(candidate.content) }} 字</span></button></div>
               <div class="production-candidate-meta"><span>{{ selectedProseCandidate.instruction || '没有额外写作要求' }}</span><time :datetime="selectedProseCandidate.createdAt">{{ formatVersionTime(selectedProseCandidate.createdAt) }}</time></div>
               <p v-if="selectedProseCandidate.baseUpdatedAt !== chapter.updatedAt" class="production-warning">生成后本章又有修改，请确认候选与现稿衔接。</p>
-              <div class="production-compare-toolbar"><strong>{{ compareProduction && chapter.content.trim() ? '现稿与候选对照' : '编辑候选正文' }}</strong><button v-if="chapter.content.trim()" class="secondary" @click="compareProduction = !compareProduction">{{ compareProduction ? '单独审阅' : '对照现稿' }}</button></div>
-              <div class="production-compare" :class="{ comparing: compareProduction && chapter.content.trim() }"><div v-if="compareProduction && chapter.content.trim()" class="production-text-panel"><span>当前正文 · {{ countWords(chapter.content) }} 字</span><textarea :value="chapter.content" aria-label="当前正文（只读）" readonly /></div><div class="production-text-panel"><span>候选方案 · {{ countWords(selectedProseCandidate.content) }} 字</span><textarea v-model="selectedProseCandidate.content" aria-label="可编辑的正文候选" spellcheck="false" /></div></div>
+              <div class="production-compare-toolbar"><strong>{{ compareProduction && chapter.content.trim() ? '现稿与候选的文字差异' : '编辑候选正文' }}</strong><button v-if="chapter.content.trim()" class="secondary" @click="compareProduction = !compareProduction">{{ compareProduction ? '返回编辑候选' : '查看文字差异' }}</button></div>
+              <TextDiff v-if="compareProduction && chapter.content.trim()" :before="chapter.content" :after="selectedProseCandidate.content" before-label="当前正文" after-label="候选方案" />
+              <div v-else class="production-edit"><label for="production-candidate-text">候选方案 · {{ countWords(selectedProseCandidate.content) }} 字</label><textarea id="production-candidate-text" v-model="selectedProseCandidate.content" aria-label="可编辑的正文候选" spellcheck="false" /></div>
               <div class="production-adopt"><label>写入方式<select v-model="productionInsert"><option value="append">追加到本章末尾</option><option value="replace">替换本章正文</option></select></label><button class="primary" :disabled="!selectedProseCandidate.content.trim()" @click="adoptProduction">采纳这份候选 →</button></div><p>采纳前不会改动正文。已有正文会先存入版本历史；其他候选继续保留。</p>
             </div>
             <div v-if="chapter.content.trim()" class="production-existing"><details><summary>查看当前正文 · {{ countWords(chapter.content) }} 字</summary><div>{{ chapter.content }}</div></details></div>
@@ -282,7 +283,7 @@
               <time :datetime="version.savedAt">{{ formatVersionTime(version.savedAt) }}</time>
             </button>
           </div>
-          <div v-if="selectedVersion" class="history-preview"><div><strong>{{ selectedVersion.title }}</strong><span>{{ formatVersionTime(selectedVersion.savedAt) }}</span></div><textarea :value="selectedVersion.content" readonly aria-label="历史版本正文" /><div class="history-preview-actions"><span>恢复前会先保存当前稿</span><button class="primary" @click="restoreVersion">恢复这个版本</button></div></div>
+          <div v-if="selectedVersion" class="history-preview"><div class="history-preview-head"><strong>{{ selectedVersion.title }}</strong><div><span>{{ formatVersionTime(selectedVersion.savedAt) }}</span><button class="secondary" @click="historyDiff = !historyDiff">{{ historyDiff ? '查看历史全文' : '与当前稿对比' }}</button></div></div><TextDiff v-if="historyDiff" :before="selectedVersion.content" :after="chapter.content" before-label="历史版本" after-label="当前正文" /><textarea v-else :value="selectedVersion.content" readonly aria-label="历史版本正文" /><div class="history-preview-actions"><span>恢复前会先保存当前稿</span><button class="primary" @click="restoreVersion">恢复这个版本</button></div></div>
         </div>
       </section>
     </div>
@@ -300,6 +301,7 @@
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { generateChapterProse, generateDraft, requestChatCompletion } from './ai'
 import { designFixture } from './design-fixture'
+import TextDiff from './TextDiff.vue'
 import { createBook, importBookJson, loadData, now, recordChapterVersion, saveData, uid, type Book, type ChatEntry, type ChapterVersion, type LoreMode, type Mode } from './storage'
 import { buildBookFromWorkflow, createWorkflowRecord, emptyWorkflow, exportWorkflowArchive, importWorkflowArchive, loadWorkflowArchive, parseChapterPlan, saveWorkflowArchive, workflowPrompt, type WorkflowArchive, type WorkflowDraft, type WorkflowField, type WorkflowRecord } from './workflow'
 
@@ -377,8 +379,9 @@ const shelfBooks = computed(() => {
   const items = data.value.books.filter(item => !query || `${item.title} ${item.premise}`.toLocaleLowerCase().includes(query))
   return [...items].sort((a, b) => shelfSort.value === 'title' ? a.title.localeCompare(b.title, 'zh-CN') : latestUpdate(b).localeCompare(latestUpdate(a)))
 })
-const showHistory = ref(false)
-const selectedVersionId = ref('')
+const showHistory = ref(designPreview && previewPanel === 'history-diff')
+const selectedVersionId = ref(designPreview && previewPanel === 'history-diff' ? data.value.books[0]?.chapters[0]?.history?.[0]?.id || '' : '')
+const historyDiff = ref(designPreview && previewPanel === 'history-diff')
 const historyNotice = ref('')
 const selectedVersion = computed(() => chapter.value?.history?.find(item => item.id === selectedVersionId.value))
 const versionSourceLabel = (source: ChapterVersion['source']) => ({ manual: '手动留存', ai: 'AI 写入前', restore: '恢复前备份' })[source]
@@ -712,6 +715,7 @@ function touchChapter() {
 }
 function openHistory() {
   selectedVersionId.value = chapter.value?.history?.[0]?.id || ''
+  historyDiff.value = false
   historyNotice.value = ''
   showHistory.value = true
 }

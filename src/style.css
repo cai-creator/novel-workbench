@@ -555,7 +555,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 }
 
 /* 章节版本：左侧选版本，右侧只读预览与安全恢复。 */
-.history-modal { width: min(960px, 100%); }
+.history-modal { width: min(1120px, 100%); }
 .history-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0 15px; border-bottom: 1px solid #ecdfeb; }
 .history-toolbar strong { overflow: hidden; color: #583b52; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .history-toolbar button { flex: none; font-size: 11px; }
@@ -570,9 +570,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .history-list button small { color: #ad91a4; font-size: 10px; font-weight: 400; }
 .history-list time { display: block; margin-top: 7px; color: #9c8998; font-size: 10px; }
 .history-preview { display: flex; min-width: 0; flex-direction: column; }
-.history-preview > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 9px; margin-bottom: 10px; }
+.history-preview-head { display: flex; align-items: center; justify-content: space-between; gap: 9px; margin-bottom: 10px; }
+.history-preview-head > div { display: flex; align-items: center; gap: 9px; }
+.history-preview-head button { padding: 6px 9px; font-size: 10px; white-space: nowrap; }
 .history-preview strong { overflow: hidden; color: #4f354b; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-.history-preview span { color: #a595a1; font-size: 10px; white-space: nowrap; }
+.history-preview-head span { color: #a595a1; font-size: 10px; white-space: nowrap; }
 .history-preview textarea { width: 100%; min-height: 280px; flex: 1; padding: 17px; border: 1px solid #eadde6; border-radius: 9px; color: #514551; background: #fffdfd; font-family: "Noto Serif SC", "Songti SC", SimSun, serif; font-size: 13px; line-height: 1.9; resize: none; }
 .history-preview-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
 .history-preview-actions button { flex: none; font-size: 11px; }
@@ -581,6 +583,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .history-list { display: flex; gap: 7px; max-height: none; overflow-x: auto; }
   .history-list button { min-width: 150px; }
   .history-preview textarea { min-height: 250px; }
+  .history-preview-head { align-items: start; flex-direction: column; }
+  .history-preview-head > div { justify-content: space-between; width: 100%; }
   .history-preview-actions span { white-space: normal; }
 }
 
@@ -760,12 +764,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .production-compare-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 18px 0 9px; }
 .production-compare-toolbar strong { color: #674b60; font-size: 11px; }
 .production-compare-toolbar button { padding: 6px 10px; font-size: 10px; }
-.production-compare { display: grid; grid-template-columns: 1fr; gap: 12px; }
-.production-compare.comparing { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.production-text-panel { min-width: 0; }
-.production-text-panel > span { display: block; margin: 0 0 7px; color: #a86c84; font-size: 10px; font-weight: 700; }
-.production-text-panel textarea { width: 100%; min-height: 310px; padding: 18px; border: 1px solid #eadde4; border-radius: 10px; color: #443943; background: var(--paper); font-family: "Noto Serif SC", "Songti SC", SimSun, serif; font-size: 14px; line-height: 1.9; resize: vertical; }
-.production-text-panel textarea[readonly] { color: #766874; background: #f9f6f5; }
+.production-edit label { display: block; margin: 0 0 7px; color: #a86c84; font-size: 10px; font-weight: 700; }
+.production-edit textarea { width: 100%; min-height: 310px; padding: 18px; border: 1px solid #eadde4; border-radius: 10px; color: #443943; background: var(--paper); font-family: "Noto Serif SC", "Songti SC", SimSun, serif; font-size: 14px; line-height: 1.9; resize: vertical; }
 .production-adopt { display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-top: 12px; }
 .production-adopt label { width: min(240px, 55%); }
 .production-adopt button { flex: none; font-size: 12px; }
@@ -774,4 +774,17 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .production-existing summary { color: #965c78; font-size: 11px; font-weight: 700; cursor: pointer; }
 .production-existing details > div { max-height: 360px; overflow-y: auto; margin-top: 10px; padding: 20px; border: 1px solid #eee4e9; border-radius: 9px; color: #6f5e69; background: #fff; font-family: "Noto Serif SC", "Songti SC", SimSun, serif; font-size: 13px; line-height: 2; white-space: pre-wrap; }
 @media (max-width: 800px) { .production-layout { grid-template-columns: 1fr; } .production-chapters { display: flex; overflow-x: auto; } .production-list-title { min-width: 90px; flex-direction: column; align-items: start; justify-content: center; } .production-chapters > button { width: 175px; flex: none; } }
-@media (max-width: 600px) { .production-shell { width: calc(100% - 22px); padding-top: 12px; } .production-hero { align-items: start; flex-direction: column; padding: 22px; } .production-hero h1 { font-size: 25px; } .production-summary { grid-template-columns: repeat(3, 1fr); gap: 5px; } .production-summary > div { padding: 10px; } .production-summary strong { font-size: 17px; } .production-summary button { grid-column: 1 / -1; } .production-stage { padding: 20px 15px; } .production-fields { grid-template-columns: 1fr; } .production-generate { align-items: stretch; flex-direction: column; } .production-compare.comparing { grid-template-columns: 1fr; } .production-adopt { align-items: stretch; flex-direction: column; } .production-adopt label { width: 100%; } }
+@media (max-width: 600px) { .production-shell { width: calc(100% - 22px); padding-top: 12px; } .production-hero { align-items: start; flex-direction: column; padding: 22px; } .production-hero h1 { font-size: 25px; } .production-summary { grid-template-columns: repeat(3, 1fr); gap: 5px; } .production-summary > div { padding: 10px; } .production-summary strong { font-size: 17px; } .production-summary button { grid-column: 1 / -1; } .production-stage { padding: 20px 15px; } .production-fields { grid-template-columns: 1fr; } .production-generate { align-items: stretch; flex-direction: column; } .production-adopt { align-items: stretch; flex-direction: column; } .production-adopt label { width: 100%; } }
+
+/* 候选稿和历史稿共用的只读文字差异视图。 */
+.text-diff-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 9px; }
+.text-diff-legend span { padding: 5px 8px; border-radius: 6px; font-size: 10px; font-weight: 700; }
+.text-diff-legend small { margin-left: auto; color: #9d8191; font-size: 10px; }
+.text-diff-removed { color: #9c3d5b; background: #ffe4eb; }
+.text-diff-added { color: #357752; background: #e2f5e8; }
+.text-diff-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.text-diff-columns section { min-width: 0; }
+.text-diff-columns strong { display: block; margin: 0 0 7px; color: #826678; font-size: 10px; }
+.text-diff-copy { min-height: 300px; max-height: 54vh; overflow: auto; padding: 17px; border: 1px solid #eadde4; border-radius: 10px; color: #594a58; background: var(--paper); font-family: "Noto Serif SC", "Songti SC", SimSun, serif; font-size: 13px; line-height: 1.9; white-space: pre-wrap; overflow-wrap: anywhere; }
+.text-diff-copy .text-diff-removed, .text-diff-copy .text-diff-added { border-radius: 2px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+@media (max-width: 700px) { .text-diff-columns { grid-template-columns: 1fr; } .text-diff-copy { min-height: 170px; max-height: 260px; } }

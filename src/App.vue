@@ -8,6 +8,7 @@
         <button v-else-if="book" class="quiet" @click="screen = 'editor'">返回写作</button>
         <button v-if="screen !== 'workflow'" class="quiet" @click="openWorkflow">工作流建书</button>
         <button v-if="screen !== 'workflow-history'" class="quiet" @click="openWorkflowHistory">建书记录 <span class="top-count">{{ workflowRecordCount }}</span></button>
+        <button v-if="book && screen !== 'production'" class="quiet" @click="openProduction">逐章生文 <span class="top-count">{{ productionDoneCount }}/{{ book.chapters.length }}</span></button>
         <button class="quiet" @click="importInput?.click()">导入作品</button>
         <input ref="importInput" type="file" accept=".json,application/json" hidden @change="handleImport" />
         <button v-if="screen === 'editor'" class="quiet" @click="exportBook" :disabled="!book">导出作品</button>
@@ -68,6 +69,23 @@
       </div>
     </main>
 
+    <main v-else-if="screen === 'production' && book" class="production-page">
+      <div class="production-shell">
+        <header class="production-hero"><div><small>CHAPTER STUDIO · {{ book.title }}</small><h1>把章纲写成故事</h1><p>按章节生成可编辑的候选稿。每章都由你审阅并采纳，正文才会更新。</p></div><button class="secondary" @click="screen = 'editor'">返回写作 →</button></header>
+        <div class="production-summary"><div><strong>{{ productionDoneCount }} / {{ book.chapters.length }}</strong><span>已有正文</span></div><div><strong>{{ productionCandidateCount }}</strong><span>待审候选</span></div><div><strong>{{ bookWords.toLocaleString() }}</strong><span>全书字数</span></div><button class="secondary" :disabled="!nextUnwrittenChapter" @click="selectProductionChapter(nextUnwrittenChapter!.id)">定位下一章 →</button></div>
+        <div class="production-layout">
+          <nav class="production-chapters" aria-label="生文章节列表"><div class="production-list-title"><strong>章节进度</strong><span>按目录顺序</span></div><button v-for="(item, index) in book.chapters" :key="item.id" type="button" :class="{ active: item.id === selectedChapterId }" @click="selectProductionChapter(item.id)"><b>{{ String(index + 1).padStart(2, '0') }}</b><span><strong>{{ item.title }}</strong><small>{{ item.proseCandidate ? '候选待审' : item.content.trim() ? `${countWords(item.content)} 字 · 已写` : '等待生文' }}</small></span><i>{{ item.proseCandidate ? '✦' : item.content.trim() ? '✓' : '→' }}</i></button></nav>
+          <section v-if="chapter" class="production-stage">
+            <div class="production-stage-head"><div><small>CHAPTER {{ String(book.chapters.findIndex(item => item.id === selectedChapterId) + 1).padStart(2, '0') }}</small><h2>{{ chapter.title }}</h2></div><span :class="{ ready: !!chapter.proseCandidate }">{{ chapter.proseCandidate ? '候选待审' : chapter.content.trim() ? '已有正文' : '待生成' }}</span></div>
+            <div class="production-outline"><strong>本章提纲</strong><p>{{ chapter.outline || '还没有章纲。可以先在写作页补充，以便 AI 把握本章事件。' }}</p></div>
+            <div class="production-controls"><div class="production-fields"><label>目标篇幅<select v-model.number="productionLength"><option :value="800">约 800 字</option><option :value="1500">约 1500 字</option><option :value="2000">约 2000 字</option></select></label><label>写作要求<textarea v-model="productionInstruction" placeholder="可选：指定视角、重点场景、对话节奏或需要避开的情节。已有正文时默认续写。" /></label></div><div class="production-generate"><span>会参考故事概念、人物和世界设定，以及上一章结尾。</span><button v-if="productionBusy" class="secondary" @click="stopProduction">停止生成</button><button v-else class="primary" @click="generateProduction">{{ chapter.proseCandidate ? '重新生成候选' : '✦ 生成正文候选' }}</button></div><p v-if="productionError" class="workflow-error" role="alert">{{ productionError }}</p></div>
+            <div v-if="chapter.proseCandidate" class="production-candidate"><div class="production-section-head"><div><small>AI CANDIDATE</small><h3>候选正文 <span>{{ countWords(chapter.proseCandidate.content) }} 字</span></h3></div><time :datetime="chapter.proseCandidate.createdAt">{{ formatVersionTime(chapter.proseCandidate.createdAt) }}</time></div><p v-if="chapter.proseCandidate.baseUpdatedAt !== chapter.updatedAt" class="production-warning">生成后本章又有修改，请确认候选与现稿衔接。</p><textarea v-model="chapter.proseCandidate.content" aria-label="可编辑的正文候选" spellcheck="false" /><div class="production-adopt"><label>写入方式<select v-model="productionInsert"><option value="append">追加到本章末尾</option><option value="replace">替换本章正文</option></select></label><button class="primary" :disabled="!chapter.proseCandidate.content.trim()" @click="adoptProduction">采纳到本章 →</button></div><p>采纳前不会改动正文。已有正文会先存入版本历史。</p></div>
+            <div v-if="chapter.content.trim()" class="production-existing"><details><summary>查看当前正文 · {{ countWords(chapter.content) }} 字</summary><div>{{ chapter.content }}</div></details></div>
+          </section>
+        </div>
+      </div>
+    </main>
+
     <main v-else-if="screen === 'shelf'" class="shelf-page">
       <div class="shelf-inner">
         <section class="shelf-hero">
@@ -125,7 +143,7 @@
         <main class="editor-area">
           <div class="editor-head">
             <div class="breadcrumbs">{{ book.title }} <span>/</span> {{ chapter?.title }}</div>
-            <div class="editor-tools"><button class="quiet" @click="openHistory">版本历史 <span class="count-pill">{{ chapter?.history?.length || 0 }}</span></button><button class="quiet" @click="showPremise = true">故事概念</button><button class="quiet" @click="sideView = 'reference'">作品资料 <span class="count-pill">{{ book.lore.length }}</span></button></div>
+            <div class="editor-tools"><button class="quiet" @click="openProduction">逐章生文</button><button class="quiet" @click="openHistory">版本历史 <span class="count-pill">{{ chapter?.history?.length || 0 }}</span></button><button class="quiet" @click="showPremise = true">故事概念</button><button class="quiet" @click="sideView = 'reference'">作品资料 <span class="count-pill">{{ book.lore.length }}</span></button></div>
           </div>
           <div v-if="chapter" class="paper">
             <input v-model="chapter.title" class="chapter-title" aria-label="章节标题" placeholder="章节标题" @input="touchChapter" />
@@ -272,7 +290,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
-import { generateDraft, requestChatCompletion } from './ai'
+import { generateChapterProse, generateDraft, requestChatCompletion } from './ai'
 import { designFixture } from './design-fixture'
 import { createBook, importBookJson, loadData, now, recordChapterVersion, saveData, uid, type Book, type ChatEntry, type ChapterVersion, type LoreMode, type Mode } from './storage'
 import { buildBookFromWorkflow, createWorkflowRecord, emptyWorkflow, exportWorkflowArchive, importWorkflowArchive, loadWorkflowArchive, parseChapterPlan, saveWorkflowArchive, workflowPrompt, type WorkflowArchive, type WorkflowDraft, type WorkflowField, type WorkflowRecord } from './workflow'
@@ -282,7 +300,7 @@ const data = ref(designPreview ? designFixture() : loadData())
 const importInput = ref<HTMLInputElement | null>(null)
 const workflowImportInput = ref<HTMLInputElement | null>(null)
 const previewPanel = designPreview ? new URLSearchParams(location.search).get('panel') : null
-const screen = ref<'shelf' | 'editor' | 'workflow' | 'workflow-history'>(previewPanel === 'workflow' ? 'workflow' : previewPanel === 'workflow-history' ? 'workflow-history' : !data.value.books.length || previewPanel === 'shelf' ? 'shelf' : 'editor')
+const screen = ref<'shelf' | 'editor' | 'workflow' | 'workflow-history' | 'production'>(previewPanel === 'workflow' ? 'workflow' : previewPanel === 'workflow-history' ? 'workflow-history' : previewPanel === 'production' ? 'production' : !data.value.books.length || previewPanel === 'shelf' ? 'shelf' : 'editor')
 function designWorkflowArchive(): WorkflowArchive {
   const draft = createWorkflowRecord({ ...emptyWorkflow(), step: 2, title: '星门长夜', genre: '东方奇幻', seed: '每个人在成年那天都能看见自己的终局。', idea: '一个看不见终局的少年，被帝国认定为灾厄。他必须在三十天内找出预言失效的原因。', outline: '第1章｜看不见的终局｜成人礼上，主角的命盘一片空白\n第2章｜追捕令｜帝国使者抵达村庄' })
   draft.id = 'design-workflow-draft'
@@ -323,9 +341,19 @@ const shelfQuery = ref('')
 const shelfSort = ref<'recent' | 'title'>('recent')
 const selectedBookId = ref(data.value.books[0]?.id || '')
 const selectedChapterId = ref(data.value.books[0]?.chapters[0]?.id || '')
+if (designPreview && previewPanel === 'production') selectedChapterId.value = data.value.books[0]?.chapters[1]?.id || selectedChapterId.value
 const book = computed(() => data.value.books.find(item => item.id === selectedBookId.value))
 const chapter = computed(() => book.value?.chapters.find(item => item.id === selectedChapterId.value))
 const bookWords = computed(() => book.value?.chapters.reduce((sum, item) => sum + countWords(item.content), 0) || 0)
+const productionDoneCount = computed(() => book.value?.chapters.filter(item => item.content.trim()).length || 0)
+const productionCandidateCount = computed(() => book.value?.chapters.filter(item => item.proseCandidate).length || 0)
+const nextUnwrittenChapter = computed(() => book.value?.chapters.find(item => !item.content.trim() && !item.proseCandidate) || null)
+const productionLength = ref(1500)
+const productionInstruction = ref('')
+const productionInsert = ref<'append' | 'replace'>('append')
+const productionBusy = ref(false)
+const productionError = ref('')
+let productionController: AbortController | null = null
 const countBookWords = (item: Book) => item.chapters.reduce((sum, part) => sum + countWords(part.content), 0)
 const latestChapter = (item: Book) => [...item.chapters].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
 const latestUpdate = (item: Book) => [item.updatedAt, ...item.chapters.map(part => part.updatedAt)].sort().at(-1) || item.updatedAt
@@ -427,7 +455,7 @@ function flushSave() {
   catch { saveStatus.value = '保存失败：请检查浏览器存储空间' }
 }
 onMounted(() => window.addEventListener('beforeunload', flushSave))
-onBeforeUnmount(() => { window.removeEventListener('beforeunload', flushSave); workflowController?.abort(); flushSave() })
+onBeforeUnmount(() => { window.removeEventListener('beforeunload', flushSave); workflowController?.abort(); productionController?.abort(); flushSave() })
 
 function goShelf() {
   if (screen.value === 'workflow') { flushWorkflowSave(); cancelWorkflowGeneration(); workflowCandidate.value = null }
@@ -589,6 +617,55 @@ function selectBook(id: string) {
   screen.value = target ? 'editor' : 'shelf'
   showHistory.value = false
   aiError.value = ''
+}
+function openProduction() {
+  if (!book.value) return
+  if (!book.value.chapters.some(item => item.id === selectedChapterId.value)) selectedChapterId.value = book.value.chapters[0]?.id || ''
+  productionInsert.value = chapter.value?.content.trim() ? 'append' : 'replace'
+  productionError.value = ''
+  screen.value = 'production'
+}
+function selectProductionChapter(id: string) {
+  if (!book.value?.chapters.some(item => item.id === id)) return
+  selectedChapterId.value = id
+  productionInsert.value = chapter.value?.content.trim() ? 'append' : 'replace'
+  productionError.value = ''
+}
+function stopProduction() { productionController?.abort() }
+async function generateProduction() {
+  if (!book.value || !chapter.value || productionBusy.value) return
+  if (chapter.value.proseCandidate && !confirm('重新生成会替换这一章尚未采纳的候选稿。确定继续？')) return
+  const targetBook = book.value
+  const targetChapter = chapter.value
+  const baseUpdatedAt = targetChapter.updatedAt
+  const instruction = productionInstruction.value.trim()
+  const requestController = new AbortController()
+  productionController = requestController
+  productionBusy.value = true
+  productionError.value = ''
+  try {
+    const content = await generateChapterProse({ model: data.value.model, book: targetBook, chapterId: targetChapter.id, instruction, targetLength: productionLength.value, signal: requestController.signal })
+    if (requestController.signal.aborted) return
+    if (!data.value.books.some(item => item.id === targetBook.id) || !targetBook.chapters.some(item => item.id === targetChapter.id)) return
+    targetChapter.proseCandidate = { content, instruction, createdAt: now(), baseUpdatedAt }
+    targetBook.updatedAt = now()
+    flushSave()
+  } catch (error) { if (!requestController.signal.aborted) productionError.value = error instanceof Error ? error.message : String(error) }
+  finally { if (productionController === requestController) { productionBusy.value = false; productionController = null } }
+}
+function adoptProduction() {
+  if (!book.value || !chapter.value?.proseCandidate) return
+  const candidate = chapter.value.proseCandidate
+  const content = candidate.content.trim()
+  if (!content) return
+  if (productionInsert.value === 'replace' && chapter.value.content.trim() && !confirm('确定替换本章现有正文吗？原稿会先保存到版本历史。')) return
+  if (chapter.value.content.trim()) recordChapterVersion(chapter.value, 'ai')
+  chapter.value.content = productionInsert.value === 'replace' ? content : [chapter.value.content.trimEnd(), content].filter(Boolean).join('\n\n')
+  chapter.value.proseCandidate = undefined
+  touchChapter()
+  flushSave()
+  const next = book.value.chapters.find(item => !item.content.trim() && !item.proseCandidate)
+  if (next) selectProductionChapter(next.id)
 }
 function touchChapter() {
   if (!chapter.value || !book.value) return

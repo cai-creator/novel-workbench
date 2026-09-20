@@ -82,3 +82,33 @@ export async function generateDraft(args: {
   }
   return requestChatCompletion({ model, system: `你是小说共创写手。保持人物和设定一致。${task[mode]}`, user: `${brief}\n\n本次要求：${instruction.trim()}`, signal })
 }
+
+/** 根据已确认的作品资料与相邻章节写可审阅的正文候选，不修改作品。 */
+export function chapterProsePrompt(book: Book, chapterId: string, instruction: string, targetLength: number): { system: string; user: string } {
+  const index = book.chapters.findIndex(item => item.id === chapterId)
+  if (index < 0) throw new Error('目标章节已不存在')
+  const chapter = book.chapters[index]
+  const previous = book.chapters[index - 1]
+  const next = book.chapters[index + 1]
+  const lore = book.lore.slice(-24).map(item => `${({ world: '世界规则', character: '人物', timeline: '时间线', plot: '剧情规划' })[item.mode]}｜${item.title}：${item.content.slice(0, 600)}`).join('\n')
+  return {
+    system: '你是中文连载小说的正文写手。只交付可以直接刊入章节的小说正文，不输出标题、提纲、解释、创作建议、Markdown 或“以下是”。保持既有世界规则、人物性格、视角与时间顺序一致。用行动、场景、对话和具体细节推动冲突，避免总结式叙述和空泛抒情。不要提前写完下一章的事件。',
+    user: [
+      `作品：《${book.title}》`,
+      book.premise && `故事核心：${book.premise.slice(0, 1600)}`,
+      lore && `已确认的作品资料：\n${lore}`,
+      previous && `上一章「${previous.title}」结尾（仅用于承接，不要重复）：\n${previous.content.slice(-2600) || previous.outline?.slice(-800) || '暂无'}`,
+      `当前章节：${chapter.title}\n本章提纲：${chapter.outline?.trim() || '尚未填写，请按作品核心和前文自然推进。'}`,
+      chapter.content.trim() && `本章已有正文结尾（若要求续写，请直接接上）：\n${chapter.content.slice(-2600)}`,
+      next?.outline && `下一章边界（留伏笔，不提前展开）：${next.outline.slice(0, 500)}`,
+      `本次目标：约 ${targetLength} 个汉字，写出完整场景和至少一次明确推进。${chapter.content.trim() ? '如果没有特别要求，接续本章已有正文。' : '从本章开头写起。'}`,
+      instruction.trim() && `作者额外要求：${instruction.trim().slice(0, 1200)}`,
+    ].filter(Boolean).join('\n\n'),
+  }
+}
+
+export async function generateChapterProse(args: { model: ModelSettings; book: Book; chapterId: string; instruction: string; targetLength: number; signal: AbortSignal }): Promise<string> {
+  const { model, book, chapterId, instruction, targetLength, signal } = args
+  const prompt = chapterProsePrompt(book, chapterId, instruction, targetLength)
+  return requestChatCompletion({ model, system: prompt.system, user: prompt.user, signal, maxTokens: Math.min(6500, Math.max(2400, targetLength * 3)) })
+}

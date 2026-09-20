@@ -8,6 +8,15 @@ export interface Chapter {
   content: string
   updatedAt: string
   history?: ChapterVersion[]
+  proseCandidate?: ChapterProseCandidate
+}
+
+export interface ChapterProseCandidate {
+  content: string
+  instruction: string
+  createdAt: string
+  /** 生成时章节正文的更新时间，用于提示候选稿可能已过期。 */
+  baseUpdatedAt: string
 }
 
 export interface ChapterVersion {
@@ -121,6 +130,7 @@ export function importBookJson(value: unknown): Book {
   const chapterIds = new Map<string, string>()
   const chapters = source.chapters.map(item => {
     const id = uid()
+    const updatedAt = now()
     chapterIds.set(String(item.id), id)
     const history = Array.isArray(item.history) ? item.history.filter(version => version &&
       typeof version.title === 'string' && typeof version.content === 'string' &&
@@ -128,7 +138,13 @@ export function importBookJson(value: unknown): Book {
       ['manual', 'ai', 'restore'].includes(version.source))
       .slice(0, 30).map(version => ({ id: uid(), title: version.title, content: version.content,
         savedAt: version.savedAt, source: version.source })) : []
-    return { id, title: item.title, outline: typeof item.outline === 'string' ? item.outline : '', content: item.content, updatedAt: now(), history }
+    const candidate = item.proseCandidate
+    const proseCandidate = candidate && typeof candidate.content === 'string' &&
+      typeof candidate.instruction === 'string' && typeof candidate.createdAt === 'string' &&
+      Number.isFinite(Date.parse(candidate.createdAt)) && typeof candidate.baseUpdatedAt === 'string'
+      ? { content: candidate.content, instruction: candidate.instruction, createdAt: candidate.createdAt,
+          baseUpdatedAt: candidate.baseUpdatedAt === item.updatedAt ? updatedAt : candidate.baseUpdatedAt } : undefined
+    return { id, title: item.title, outline: typeof item.outline === 'string' ? item.outline : '', content: item.content, updatedAt, history, proseCandidate }
   })
   const lore = source.lore.map(item => ({ id: uid(), title: item.title, content: item.content,
     mode: item.mode, timeLabel: typeof item.timeLabel === 'string' ? item.timeLabel : undefined }))

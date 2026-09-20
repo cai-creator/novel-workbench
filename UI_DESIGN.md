@@ -29,6 +29,7 @@
 书架：作品搜索与排序 / 章节、字数、资料概览 / 继续最近写作章节
 建书：创作方向 / 故事骨架 / 人物世界 / 确认建书；每次 AI 生成均先预览与采纳
 建书记录：多份草稿与完成方案 / 继续编辑 / 复制 / 备份导入导出
+逐章生文：章节进度 / 本章提纲 / 生成设置 / 候选稿审阅和采纳
 左一：作品书架
 左二：章节目录
 中央：章节路径 / 故事概念与设定 / 纸张正文
@@ -36,7 +37,7 @@
 浮层：资料集中编辑、章节版本预览与恢复、模型设置、生成内容预览和采纳
 ```
 
-`?ui-preview=1` 是开发环境专用的界面样例，展示一部虚构作品、四章目录和一段 AI 对话，不会读写用户作品。添加 `&panel=shelf` 查看作品书架；添加 `&panel=workflow` 查看建书流程；添加 `&panel=workflow-history` 查看带样例草稿的建书记录；添加 `&panel=reference` 查看作品资料栏；添加 `&panel=preview` 查看“预览并采纳”弹窗。直接打开普通地址进入真实本地数据。
+`?ui-preview=1` 是开发环境专用的界面样例，展示一部虚构作品、四章目录和一段 AI 对话，不会读写用户作品。添加 `&panel=shelf` 查看作品书架；添加 `&panel=workflow` 查看建书流程；添加 `&panel=workflow-history` 查看带样例草稿的建书记录；添加 `&panel=production` 查看逐章生文审阅页；添加 `&panel=reference` 查看作品资料栏；添加 `&panel=preview` 查看“预览并采纳”弹窗。直接打开普通地址进入真实本地数据。
 
 ## 交互原则
 
@@ -74,6 +75,7 @@
 - [工作流建书](./design/workflow-desktop.png)
 - [窄屏工作流建书](./design/workflow-mobile.png)
 - [建书记录](./design/workflow-history.png)
+- [逐章生文](./design/production-desktop.png)
 - [窄屏建书记录](./design/workflow-history-mobile.png)
 - [空书架](./design/welcome-final.png)
 - [AI 预览并采纳](./design/adopt-preview.png)

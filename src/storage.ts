@@ -4,6 +4,7 @@ export type LoreMode = Exclude<Mode, 'prose'> | 'timeline'
 export interface Chapter {
   id: string
   title: string
+  outline?: string
   content: string
   updatedAt: string
   history?: ChapterVersion[]
@@ -127,7 +128,7 @@ export function importBookJson(value: unknown): Book {
       ['manual', 'ai', 'restore'].includes(version.source))
       .slice(0, 30).map(version => ({ id: uid(), title: version.title, content: version.content,
         savedAt: version.savedAt, source: version.source })) : []
-    return { id, title: item.title, content: item.content, updatedAt: now(), history }
+    return { id, title: item.title, outline: typeof item.outline === 'string' ? item.outline : '', content: item.content, updatedAt: now(), history }
   })
   const lore = source.lore.map(item => ({ id: uid(), title: item.title, content: item.content,
     mode: item.mode, timeLabel: typeof item.timeLabel === 'string' ? item.timeLabel : undefined }))

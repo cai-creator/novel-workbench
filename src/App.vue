@@ -1,11 +1,12 @@
 <template>
   <div class="app-shell">
     <header class="topbar">
-      <button class="brand brand-button" type="button" @click="screen = 'shelf'" aria-label="返回作品书架"><span class="brand-mark">文</span><span><strong>小说创作工作台</strong><small>新版 · 从故事到正文</small></span></button>
+      <button class="brand brand-button" type="button" @click="goShelf" aria-label="返回作品书架"><span class="brand-mark">文</span><span><strong>小说创作工作台</strong><small>新版 · 从故事到正文</small></span></button>
       <div class="top-actions">
         <span class="save-indicator" role="status">{{ saveStatus }}</span>
-        <button v-if="screen === 'editor'" class="quiet" @click="screen = 'shelf'">作品书架</button>
+        <button v-if="screen !== 'shelf'" class="quiet" @click="goShelf">作品书架</button>
         <button v-else-if="book" class="quiet" @click="screen = 'editor'">返回写作</button>
+        <button v-if="screen !== 'workflow'" class="quiet" @click="openWorkflow">工作流建书</button>
         <button class="quiet" @click="importInput?.click()">导入作品</button>
         <input ref="importInput" type="file" accept=".json,application/json" hidden @change="handleImport" />
         <button v-if="screen === 'editor'" class="quiet" @click="exportBook" :disabled="!book">导出作品</button>
@@ -13,11 +14,43 @@
       </div>
     </header>
 
-    <main v-if="screen === 'shelf'" class="shelf-page">
+    <main v-if="screen === 'workflow'" class="workflow-page">
+      <div class="workflow-shell">
+        <header class="workflow-hero"><small>STORY LAB · 从灵感到可写的书</small><h1>建立你的下一部连载</h1><p>四步完成可编辑的创意、大纲与设定。每份 AI 候选都由你决定是否采纳。</p></header>
+        <nav class="workflow-steps" aria-label="建书步骤"><button v-for="item in workflowSteps" :key="item.step" type="button" :class="{ active: workflow.step === item.step, done: workflow.step > item.step }" @click="workflow.step = item.step"><span>{{ String(item.step).padStart(2, '0') }}</span>{{ item.label }}</button></nav>
+        <section class="workflow-card">
+          <div class="workflow-card-head"><div><small>第 {{ workflow.step }} 步 / 共 4 步</small><h2>{{ workflowSteps[workflow.step - 1].title }}</h2><p>{{ workflowSteps[workflow.step - 1].description }}</p></div><button class="workflow-reset" @click="resetWorkflow">清空草稿</button></div>
+          <div v-if="workflow.step === 1" class="workflow-fields">
+            <div class="workflow-field-row"><label>作品类型<input v-model="workflow.genre" placeholder="例如：都市悬疑、玄幻冒险" /></label><label>目标读者<input v-model="workflow.audience" placeholder="例如：喜欢快节奏悬疑的读者" /></label><label>叙事风格<input v-model="workflow.tone" placeholder="例如：克制、诡谲、带少量幽默" /></label></div>
+            <label>原始灵感<textarea v-model="workflow.seed" placeholder="哪怕只有一句话：主角遇到了什么异常？他非解决不可的事是什么？" /></label>
+            <div class="workflow-field-head"><label for="workflow-idea">可用创意</label><button class="secondary" :disabled="workflowBusy" @click="generateWorkflow('idea')">✦ AI 完善创意</button></div><textarea id="workflow-idea" v-model="workflow.idea" placeholder="把创意改成你愿意写下去的版本。AI 生成内容需要先预览和采纳。" />
+          </div>
+          <div v-else-if="workflow.step === 2" class="workflow-fields">
+            <div class="workflow-field-head"><label for="workflow-title">作品名称</label><button class="secondary" :disabled="workflowBusy" @click="generateWorkflow('title')">✦ AI 取书名</button></div><input id="workflow-title" v-model="workflow.title" maxlength="60" placeholder="先起一个工作书名，随时可以改" />
+            <div class="workflow-field-head"><label for="workflow-outline">故事主线与章节规划</label><button class="secondary" :disabled="workflowBusy" @click="generateWorkflow('outline')">✦ AI 生成大纲</button></div><textarea id="workflow-outline" v-model="workflow.outline" class="workflow-long" placeholder="先写故事主线，再逐行写：第1章｜标题｜具体事件与章节钩子。建书时会识别最多 20 个章节。" />
+            <p class="workflow-help">已识别 {{ workflowChapters.length }} 个章节；章节摘要会跟随正文保存，并提供给 AI 写正文时参考。</p>
+          </div>
+          <div v-else-if="workflow.step === 3" class="workflow-fields">
+            <div class="workflow-field-head"><label for="workflow-world">世界观与规则</label><button class="secondary" :disabled="workflowBusy" @click="generateWorkflow('world')">✦ AI 补全世界观</button></div><textarea id="workflow-world" v-model="workflow.world" placeholder="规则、限制、代价与对故事的影响" />
+            <div class="workflow-field-head"><label for="workflow-characters">主要人物</label><button class="secondary" :disabled="workflowBusy" @click="generateWorkflow('characters')">✦ AI 塑造人物</button></div><textarea id="workflow-characters" v-model="workflow.characters" placeholder="人物目标、弱点、秘密、关系与变化" />
+            <div class="workflow-field-head"><label for="workflow-timeline">故事时间线</label><button class="secondary" :disabled="workflowBusy" @click="generateWorkflow('timeline')">✦ AI 整理时间线</button></div><textarea id="workflow-timeline" v-model="workflow.timeline" placeholder="第一天｜事件｜后果；逐行记录重要节点" />
+          </div>
+          <div v-else class="workflow-review">
+            <div class="workflow-review-book"><span>即将创建</span><h3>{{ workflow.title || '尚未命名的作品' }}</h3><p>{{ workflow.idea || workflow.seed || '还没有填写创意。' }}</p></div>
+            <div class="workflow-review-stats"><div><strong>{{ workflowChapters.length || 1 }}</strong><span>初始章节</span></div><div><strong>{{ workflowLoreCount }}</strong><span>作品资料</span></div><div><strong>{{ workflow.idea ? '已确定' : '待补充' }}</strong><span>核心创意</span></div></div>
+            <div class="workflow-review-list"><strong>章节目录预览</strong><p v-if="!workflowChapters.length">没有识别到“第1章｜标题｜摘要”格式；建书时会先创建空白第一章，大纲仍保留在资料库中。</p><ol v-else><li v-for="item in workflowChapters" :key="item.title"><b>{{ item.title }}</b><span>{{ item.outline }}</span></li></ol></div>
+          </div>
+          <p v-if="workflowError" class="workflow-error" role="alert">{{ workflowError }}</p>
+          <div class="workflow-footer"><span>{{ workflowSaveStatus }}</span><div><button v-if="workflowBusy" class="secondary" @click="stopWorkflow">停止生成</button><button v-if="workflow.step > 1" class="secondary" @click="previousWorkflow">上一步</button><button v-if="workflow.step < 4" class="primary" @click="nextWorkflow">下一步 →</button><button v-else class="primary" :disabled="!workflow.title.trim() || workflowBusy" @click="finishWorkflow">创建作品并开始写作 →</button></div></div>
+        </section>
+      </div>
+    </main>
+
+    <main v-else-if="screen === 'shelf'" class="shelf-page">
       <div class="shelf-inner">
         <section class="shelf-hero">
           <div><small>我的连载书房</small><h1>每一个故事，都有下一章。</h1><p>在这里整理作品，随时回到最近写下的那一章。</p>
-            <div class="shelf-hero-actions"><button class="primary large" @click="addBook">＋ 开始新故事</button><button class="shelf-import" @click="importInput?.click()">导入已有作品 →</button></div>
+            <div class="shelf-hero-actions"><button class="primary large" @click="openWorkflow">✦ 工作流建书</button><button class="shelf-import" @click="addBook">手动创建 →</button><button class="shelf-import" @click="importInput?.click()">导入已有作品 →</button></div>
           </div>
           <div class="shelf-hero-art" aria-hidden="true"><span>故</span><span>事</span><span>未</span><span>完</span></div>
         </section>
@@ -75,6 +108,7 @@
           <div v-if="chapter" class="paper">
             <input v-model="chapter.title" class="chapter-title" aria-label="章节标题" placeholder="章节标题" @input="touchChapter" />
             <div class="paper-meta">{{ countWords(chapter.content) }} 字 <span>·</span> {{ chapter.content ? '继续写下去' : '在这里写下故事的第一句' }}</div>
+            <details class="chapter-outline"><summary>本章提纲 <span>{{ chapter.outline ? '已填写' : '可选' }}</span></summary><textarea v-model="chapter.outline" placeholder="这一章要发生什么？结尾留下什么悬念？" @input="touchChapter" /></details>
             <textarea v-model="chapter.content" class="manuscript" aria-label="章节正文" placeholder="故事从这里开始……" spellcheck="false" @input="touchChapter" />
           </div>
           <div v-else class="empty-main">选择一章，开始写作。</div>
@@ -150,7 +184,14 @@
       </section>
     </div>
 
-    <div v-if="showModel" class="overlay" @click.self="showModel = false"><section class="modal settings-modal" role="dialog" aria-modal="true" aria-label="模型设置"><div class="modal-head"><div><small>创作助手</small><h2>模型设置</h2></div><button class="icon-button" aria-label="关闭" @click="showModel = false">×</button></div><p class="modal-note">填写兼容 Chat Completions 的接口。地址和密钥只保存在当前浏览器中；浏览器直连需要服务商允许跨域请求。</p><label>API 地址<input v-model.trim="data.model.baseUrl" placeholder="https://服务商地址/v1" /></label><label>模型 ID<input v-model.trim="data.model.model" placeholder="填写服务商提供的模型 ID" /></label><label>API Key<input v-model="data.model.apiKey" type="password" autocomplete="off" placeholder="填写密钥；本地模型可留空" /></label><div class="modal-actions"><button class="primary" @click="showModel = false">保存设置</button></div></section></div>
+    <div v-if="showModel" class="overlay" @click.self="showModel = false"><section class="modal settings-modal" role="dialog" aria-modal="true" aria-label="模型设置">
+      <div class="modal-head"><div><small>创作助手</small><h2>模型设置</h2></div><button class="icon-button" aria-label="关闭" @click="showModel = false">×</button></div>
+      <p class="modal-note">填写兼容 Chat Completions 的接口。地址和密钥只保存在当前浏览器中；浏览器直连需要服务商允许跨域请求。</p>
+      <button class="agnes-preset" type="button" @click="useAgnesPreset">使用 Agnes 3.0 Flash 官方接口预设 →</button>
+      <label>API 地址<input v-model.trim="data.model.baseUrl" placeholder="例如：https://apihub.agnes-ai.com/v1" /></label><label>模型 ID<input v-model.trim="data.model.model" placeholder="例如：agnes-3.0-flash" /></label><label>API Key<input v-model="data.model.apiKey" type="password" autocomplete="off" placeholder="填写服务商提供的 API Key" /></label>
+      <p v-if="modelTestStatus" class="model-test-status" role="status">{{ modelTestStatus }}</p>
+      <div class="modal-actions"><button class="secondary" :disabled="testingModel" @click="testModelConnection">{{ testingModel ? '正在测试…' : '测试连接' }}</button><button class="primary" @click="showModel = false">保存设置</button></div>
+    </section></div>
 
     <div v-if="showPremise && book" class="overlay" @click.self="showPremise = false"><section class="modal" role="dialog" aria-modal="true" aria-label="故事概念"><div class="modal-head"><div><small>作品底稿</small><h2>故事概念</h2></div><button class="icon-button" aria-label="关闭" @click="showPremise = false">×</button></div><p class="modal-note">写下核心冲突、人物目标或一句话梗概。创作助手会把它纳入上下文。</p><textarea v-model="book.premise" class="modal-textarea" placeholder="例如：一个不愿成为英雄的人，被迫继承了会吞噬记忆的王国。" /><div class="modal-actions"><button class="primary" @click="showPremise = false">完成</button></div></section></div>
 
@@ -198,20 +239,43 @@
       </section>
     </div>
 
+    <div v-if="workflowCandidate" class="overlay" @click.self="workflowCandidate = null"><section class="modal preview-modal" role="dialog" aria-modal="true" aria-label="预览建书候选">
+      <div class="modal-head"><div><small>候选稿 · 可先修改</small><h2>预览并采纳{{ workflowFieldLabel(workflowCandidate.field) }}</h2></div><button class="icon-button" aria-label="关闭" @click="workflowCandidate = null">×</button></div>
+      <p class="modal-note">模型生成结果不会自动覆盖草稿。你可以直接修改下方文本，再决定是否采纳。</p><textarea v-model="workflowCandidate.text" class="preview-textarea" aria-label="建书候选内容" /><div class="modal-actions"><button class="secondary" @click="workflowCandidate = null">暂不采纳</button><button class="primary" :disabled="!workflowCandidate.text.trim()" @click="adoptWorkflowCandidate">采纳到草稿</button></div>
+    </section></div>
+
     <div v-if="preview" class="overlay" @click.self="preview = null"><section class="modal preview-modal" role="dialog" aria-modal="true" aria-label="预览 AI 内容"><div class="modal-head"><div><small>先审阅，再落稿</small><h2>预览并采纳</h2></div><button class="icon-button" aria-label="关闭" @click="preview = null">×</button></div><p class="modal-note">你可以先修改生成内容。只有点击采纳，内容才会进入作品。</p><label v-if="preview.mode !== 'prose'">设定标题<input v-model="preview.title" placeholder="给这条设定起名" /></label><label v-else>写入位置<select v-model="preview.insert"><option value="append">追加到本章末尾</option><option value="replace">替换本章正文</option></select></label><textarea v-model="preview.content" class="preview-textarea" aria-label="生成内容" /><div class="modal-actions"><button class="secondary" @click="preview = null">暂不采纳</button><button class="primary" :disabled="!preview.content.trim()" @click="adoptPreview">采纳到作品</button></div></section></div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
-import { generateDraft } from './ai'
+import { generateDraft, requestChatCompletion } from './ai'
 import { designFixture } from './design-fixture'
 import { createBook, importBookJson, loadData, now, recordChapterVersion, saveData, uid, type Book, type ChatEntry, type ChapterVersion, type LoreMode, type Mode } from './storage'
+import { buildBookFromWorkflow, clearWorkflow, emptyWorkflow, loadWorkflow, parseChapterPlan, saveWorkflow, workflowPrompt, type WorkflowDraft, type WorkflowField } from './workflow'
 
 const designPreview = import.meta.env.DEV && new URLSearchParams(location.search).has('ui-preview')
 const data = ref(designPreview ? designFixture() : loadData())
 const importInput = ref<HTMLInputElement | null>(null)
-const screen = ref<'shelf' | 'editor'>(!data.value.books.length || (designPreview && new URLSearchParams(location.search).get('panel') === 'shelf') ? 'shelf' : 'editor')
+const previewPanel = designPreview ? new URLSearchParams(location.search).get('panel') : null
+const screen = ref<'shelf' | 'editor' | 'workflow'>(previewPanel === 'workflow' ? 'workflow' : !data.value.books.length || previewPanel === 'shelf' ? 'shelf' : 'editor')
+const workflow = ref<WorkflowDraft>(designPreview ? emptyWorkflow() : loadWorkflow())
+const workflowSteps = [
+  { step: 1, label: '创作方向', title: '让灵感有一个抓手', description: '先确定类型、读者和故事的核心冲突。' },
+  { step: 2, label: '故事骨架', title: '从创意走到章节', description: '定下书名、主线与前几章的具体推进。' },
+  { step: 3, label: '人物世界', title: '让设定支撑情节', description: '补齐世界规则、人物行动和关键事件顺序。' },
+  { step: 4, label: '确认建书', title: '检查后开始写作', description: '确认作品资料与章节目录，再创建新书。' },
+] as const
+const workflowChapters = computed(() => parseChapterPlan(workflow.value.outline))
+const workflowLoreCount = computed(() => [workflow.value.genre || workflow.value.audience || workflow.value.tone, workflow.value.outline, workflow.value.world, workflow.value.characters, workflow.value.timeline].filter(value => value.trim()).length)
+const workflowBusy = ref(false)
+const workflowError = ref('')
+const workflowSaveStatus = ref('草稿已保存在本机')
+const workflowCandidate = ref<{ field: WorkflowField; text: string } | null>(null)
+const workflowFieldLabel = (field: WorkflowField) => ({ idea: '创意', title: '书名', outline: '大纲', world: '世界观', characters: '人物', timeline: '时间线' })[field]
+let workflowController: AbortController | null = null
+let workflowSaveTimer: ReturnType<typeof setTimeout> | null = null
 const shelfQuery = ref('')
 const shelfSort = ref<'recent' | 'title'>('recent')
 const selectedBookId = ref(data.value.books[0]?.id || '')
@@ -265,6 +329,8 @@ const showCreateBook = ref(false)
 const newBookTitle = ref('')
 const newBookPremise = ref('')
 const showModel = ref(false)
+const testingModel = ref(false)
+const modelTestStatus = ref('')
 const showPremise = ref(false)
 const showLore = ref(false)
 const aiError = ref('')
@@ -288,14 +354,94 @@ watch(data, () => {
   }, 350)
 }, { deep: true })
 
+watch(workflow, () => {
+  if (designPreview || screen.value !== 'workflow') return
+  workflowSaveStatus.value = '正在保存草稿…'
+  if (workflowSaveTimer) clearTimeout(workflowSaveTimer)
+  workflowSaveTimer = setTimeout(flushWorkflowSave, 350)
+}, { deep: true })
+
+function flushWorkflowSave() {
+  if (designPreview || screen.value !== 'workflow') return
+  if (workflowSaveTimer) clearTimeout(workflowSaveTimer)
+  try { saveWorkflow(workflow.value); workflowSaveStatus.value = '草稿已保存在本机' }
+  catch { workflowSaveStatus.value = '草稿保存失败：请检查浏览器存储空间' }
+}
+
 function flushSave() {
+  flushWorkflowSave()
   if (designPreview) return
   if (saveTimer) clearTimeout(saveTimer)
   try { saveData(data.value); saveStatus.value = '已保存在本机' }
   catch { saveStatus.value = '保存失败：请检查浏览器存储空间' }
 }
 onMounted(() => window.addEventListener('beforeunload', flushSave))
-onBeforeUnmount(() => { window.removeEventListener('beforeunload', flushSave); flushSave() })
+onBeforeUnmount(() => { window.removeEventListener('beforeunload', flushSave); workflowController?.abort(); flushSave() })
+
+function goShelf() {
+  if (screen.value === 'workflow') { flushWorkflowSave(); workflowController?.abort(); workflowCandidate.value = null }
+  screen.value = 'shelf'
+}
+function openWorkflow() { workflowError.value = ''; screen.value = 'workflow' }
+function resetWorkflow() {
+  if (!confirm('确定清空当前建书草稿？已填写的创意、大纲和设定将被删除。')) return
+  workflowController?.abort()
+  workflow.value = emptyWorkflow()
+  workflowCandidate.value = null
+  workflowError.value = ''
+  if (!designPreview) clearWorkflow()
+}
+function nextWorkflow() { if (workflow.value.step < 4) workflow.value.step = (workflow.value.step + 1) as WorkflowDraft['step'] }
+function previousWorkflow() { if (workflow.value.step > 1) workflow.value.step = (workflow.value.step - 1) as WorkflowDraft['step'] }
+function stopWorkflow() { workflowController?.abort() }
+async function generateWorkflow(field: WorkflowField) {
+  if (workflowBusy.value) return
+  if (![workflow.value.seed, workflow.value.idea, workflow.value.genre].some(value => value.trim())) { workflowError.value = '先填写原始灵感或作品类型，再请 AI 生成。'; return }
+  workflowError.value = ''
+  workflowBusy.value = true
+  workflowController = new AbortController()
+  const prompt = workflowPrompt(field, workflow.value)
+  try {
+    const text = await requestChatCompletion({ model: data.value.model, system: prompt.system, user: prompt.user, signal: workflowController.signal, maxTokens: field === 'title' ? 80 : field === 'outline' ? 2400 : 1100 })
+    if (screen.value === 'workflow') workflowCandidate.value = { field, text }
+  } catch (error) { if (screen.value === 'workflow') workflowError.value = error instanceof Error ? error.message : String(error) }
+  finally { workflowBusy.value = false; workflowController = null }
+}
+function adoptWorkflowCandidate() {
+  if (!workflowCandidate.value) return
+  const { field, text } = workflowCandidate.value
+  workflow.value[field] = field === 'title' ? text.trim().split(/\r?\n/)[0].replace(/^[《“"']|[》”"']$/g, '').slice(0, 60) : text.trim()
+  workflowCandidate.value = null
+  workflowError.value = ''
+}
+function finishWorkflow() {
+  try {
+    const created = buildBookFromWorkflow(workflow.value)
+    data.value.books.unshift(created)
+    selectBook(created.id)
+    selectedChapterId.value = created.chapters[0].id
+    workflow.value = emptyWorkflow()
+    if (!designPreview) clearWorkflow()
+    flushSave()
+  } catch (error) { workflowError.value = error instanceof Error ? error.message : String(error) }
+}
+function useAgnesPreset() {
+  data.value.model.baseUrl = 'https://apihub.agnes-ai.com/v1'
+  data.value.model.model = 'agnes-3.0-flash'
+  modelTestStatus.value = '已填入 Agnes 3.0 Flash 的官方 API 地址和模型 ID，请填写 API Key 后测试连接。'
+}
+async function testModelConnection() {
+  if (testingModel.value) return
+  testingModel.value = true
+  modelTestStatus.value = '正在测试连接…'
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 15000)
+  try {
+    await requestChatCompletion({ model: data.value.model, system: '你是连接测试助手。', user: '请只回复“连接成功”。', maxTokens: 24, signal: controller.signal })
+    modelTestStatus.value = '连接成功，模型已返回内容。'
+  } catch (error) { modelTestStatus.value = controller.signal.aborted ? '连接测试超过 15 秒，请检查 API 地址、网络或浏览器跨域限制。' : error instanceof Error ? error.message : String(error) }
+  finally { clearTimeout(timeout); testingModel.value = false }
+}
 
 function selectBook(id: string) {
   selectedBookId.value = id

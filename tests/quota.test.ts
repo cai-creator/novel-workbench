@@ -1,5 +1,5 @@
 import { equal, ok, test } from './harness'
-import { onQuotaWarning, reportQuotaWarning, STORAGE_QUOTA_MESSAGE, StorageQuotaError, writeStorage } from '../src/quota'
+import { onQuotaWarning, reportQuotaWarning, assertStorageFits, STORAGE_QUOTA_MESSAGE, StorageQuotaError, writeStorage } from '../src/quota'
 import { loadData, saveData } from '../src/storage'
 import { emptyStatsState } from '../src/stats'
 import { emptyRankStore, loadRankStore, saveRankStore } from '../src/rank'
@@ -106,6 +106,19 @@ test('五个存储的保存函数统一走配额处理，不再静默或抛英�
     equal(localStorage.getItem(key), null, `${name}写失败后键里不留半截数据`)
   }
   restoreStorage()
+  clearStorage()
+})
+
+test('assertStorageFits 只预检不落盘：装得下不吭声，装不下抛中文错误', () => {
+  clearStorage()
+  warnings.length = 0
+  assertStorageFits({ blob: 'x'.repeat(1024) })
+  equal(localStorage.length, 0, '预检不写任何键')
+  let caught: unknown = null
+  try { assertStorageFits({ blob: 'x'.repeat(6 * 1024 * 1024) }) } catch (error) { caught = error }
+  ok(caught instanceof StorageQuotaError, '超限抛 StorageQuotaError')
+  ok((caught as Error).message.includes('MB'), '提示带体量')
+  equal(localStorage.length, 0, '超限同样不落盘')
   clearStorage()
 })
 

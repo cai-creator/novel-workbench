@@ -78,7 +78,24 @@ export function loadWorkflowArchive(): WorkflowArchive {
   } catch { /* 无法读取的旧草稿保留在原存储键 */ }
   return emptyArchive()
 }
+/** 建书记录上限：与导入上限一致，创建与恢复都不再无界堆积。 */
+export const MAX_WORKFLOW_RECORDS = 200
+
+/** 超限时优先挤掉最旧的草稿，草稿不够挤才动最旧的完成记录；返回被挤掉的条数供调用方提示。 */
+export function pruneWorkflowRecords(records: WorkflowRecord[]): { records: WorkflowRecord[]; pruned: number } {
+  if (records.length <= MAX_WORKFLOW_RECORDS) return { records, pruned: 0 }
+  const kept = [...records]
+  for (let index = kept.length - 1; index >= 0 && kept.length > MAX_WORKFLOW_RECORDS; index -= 1) {
+    if (kept[index].status === 'draft') kept.splice(index, 1)
+  }
+  let pruned = records.length - kept.length
+  while (kept.length > MAX_WORKFLOW_RECORDS) { kept.pop(); pruned += 1 }
+  return { records: kept, pruned }
+}
+
 export function saveWorkflowArchive(archive: WorkflowArchive): void {
+  const { records, pruned } = pruneWorkflowRecords(archive.records)
+  if (pruned) archive.records = records
   writeStorage(ARCHIVE_STORAGE_KEY, archive)
   localStorage.removeItem(LEGACY_STORAGE_KEY)
 }

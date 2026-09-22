@@ -42,8 +42,8 @@ function quotaFailure(message: string): StorageQuotaError {
   return new StorageQuotaError(message)
 }
 
-/** 统一写入入口：序列化、体积预检、setItem 都走这一条路。 */
-export function writeStorage(key: string, value: unknown): void {
+/** 写前预检：不落盘，只验证目标内容序列化后装得进单次写入预算；导入/合并这类「先算账再动内存」的路径用它。 */
+export function assertStorageFits(value: unknown): void {
   let text: string
   try {
     text = JSON.stringify(value)
@@ -54,8 +54,13 @@ export function writeStorage(key: string, value: unknown): void {
   if (bytes > STORAGE_BUDGET_BYTES) {
     throw quotaFailure(`本次要保存的内容约 ${(bytes / 1024 / 1024).toFixed(1)}MB，超出浏览器约 5MB 的存储上限，未能保存。请分拆或清理旧数据后重试。`)
   }
+}
+
+/** 统一写入入口：序列化、体积预检、setItem 都走这一条路。 */
+export function writeStorage(key: string, value: unknown): void {
+  assertStorageFits(value)
   try {
-    localStorage.setItem(key, text)
+    localStorage.setItem(key, JSON.stringify(value))
   } catch {
     throw quotaFailure(STORAGE_QUOTA_MESSAGE)
   }

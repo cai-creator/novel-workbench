@@ -118,6 +118,22 @@ test('importBookJson 拒绝不受支持的文件', () => {
   throws(() => importBookJson({ format: 'other-v1', book: { id: 'x' } }), '错误格式标记应抛错')
 })
 
+test('importBookJson 拒绝超上限的章节数并裁剪设定与对话', () => {
+  const many = Array.from({ length: 501 }, (_, index) => ({ id: `c${index}`, title: `第${index + 1}章`, content: '正文' }))
+  throws(() => importBookJson({ format: 'novel-workbench-next/book-v1', book: { title: '超长书', chapters: many, lore: [] } }), '超过 500 章应拒绝导入')
+  const imported = importBookJson({
+    format: 'novel-workbench-next/book-v1',
+    book: {
+      title: '大杂烩', chapters: [{ id: 'c1', title: '第一章', content: '正文' }],
+      lore: Array.from({ length: 260 }, (_, index) => ({ title: `设定${index}`, content: '内容', mode: 'world' })),
+      chat: Array.from({ length: 700 }, (_, index) => ({ role: 'user', mode: 'prose', content: `消息${index}` })),
+    },
+  })
+  equal(imported.lore.length, 200, '设定裁剪到 200 条')
+  equal(imported.chat.length, 500, '对话裁剪到最近 500 条')
+  equal(imported.chat[0].content, '消息200', '对话保留最新的一段')
+})
+
 const MAIN_KEY = 'novel-workbench-next/v1'
 const STASH_KEYS = ['novel-workbench-next/v1-corrupt', 'novel-workbench-next/v1-corrupt-2', 'novel-workbench-next/v1-corrupt-3']
 const resetCorruptState = () => {

@@ -477,8 +477,8 @@ import { emptyRankStore, loadRankStore, saveRankStore } from './rank'
 import { FONT_SIZE_RANGE, loadEditorPrefs, saveEditorPrefs } from './prefs'
 import { createBook, importBookJson, loadData, now, recordChapterVersion, releaseCorruptDataProtection, saveData, takeCorruptDataNotice, uid, type Book, type ChatEntry, type Chapter, type ChapterVersion, type InspirationNote, type LoreMode, type Mode } from './storage'
 import { currentStreak, dateKey, DEFAULT_DAILY_GOAL, heatLevel, monthMatrix, pruneStatsBooks, recordWords, totalsFor, trendSeries } from './stats'
-import { buildBookFromWorkflow, createWorkflowRecord, emptyWorkflow, exportWorkflowArchive, importWorkflowArchive, loadWorkflowArchive, parseChapterPlan, saveWorkflowArchive, workflowPrompt, type WorkflowArchive, type WorkflowDraft, type WorkflowField, type WorkflowRecord } from './workflow'
-import { onQuotaWarning } from './quota'
+import { buildBookFromWorkflow, createWorkflowRecord, emptyWorkflow, exportWorkflowArchive, importWorkflowArchive, loadWorkflowArchive, MAX_WORKFLOW_RECORDS, parseChapterPlan, saveWorkflowArchive, workflowPrompt, type WorkflowArchive, type WorkflowDraft, type WorkflowField, type WorkflowRecord } from './workflow'
+import { assertStorageFits, onQuotaWarning } from './quota'
 
 const designPreview = import.meta.env.DEV && new URLSearchParams(location.search).has('ui-preview')
 const data = ref(designPreview ? designFixture() : loadData())
@@ -858,8 +858,9 @@ watch([findQuery, findCaseSensitive, () => chapter.value?.content], () => {
   if (!query || !chapter.value) { findMatches.value = []; findIndex.value = 0; return }
   const regex = new RegExp(escapeRegExp(query), findCaseSensitive.value ? 'g' : 'gi')
   const matches: { start: number; end: number }[] = []
+  // 不设匹配数上限：「全部替换」必须覆盖整章，截断列表会让高频词替换静默漏掉后半章
   let hit = regex.exec(chapter.value.content)
-  while (hit && matches.length < 500) {
+  while (hit) {
     matches.push({ start: hit.index, end: hit.index + hit[0].length })
     if (hit[0].length === 0) regex.lastIndex++
     hit = regex.exec(chapter.value.content)
@@ -896,7 +897,9 @@ function replaceCurrentMatch() {
   chapter.value.content = chapter.value.content.slice(0, match.start) + replaceQuery.value + chapter.value.content.slice(match.end)
   touchChapter()
   void nextTick(() => {
-    const index = findMatches.value.findIndex(item => item.start >= match.start)
+    // 跳过与刚写入的替换结果重叠的匹配：替换文本含查找词时光标才不会原地卡住
+    const after = match.start + replaceQuery.value.length
+    const index = findMatches.value.findIndex(item => item.start >= after)
     if (findMatches.value.length) selectMatch(index === -1 ? 0 : index)
   })
 }
@@ -1068,7 +1071,12 @@ function flushWorkflowSave() {
 }
 function persistWorkflowArchive(): boolean {
   if (designPreview) return true
-  try { saveWorkflowArchive(workflowArchive.value); workflowSaveStatus.value = '草稿已保存在本机'; workflowHistoryError.value = ''; return true }
+  try {
+    const before = workflowArchive.value.records.length
+    saveWorkflowArchive(workflowArchive.value)
+    if (workflowArchive.value.records.length < before) showToast(`建书记录超过 ${MAX_WORKFLOW_RECORDS} 条，已清理最旧的草稿`)
+    workflowSaveStatus.value = '草稿已保存在本机'; workflowHistoryError.value = ''; return true
+  }
   catch { workflowSaveStatus.value = '建书记录保存失败：请检查浏览器存储空间'; workflowHistoryError.value = workflowSaveStatus.value; return false }
 }
 
@@ -1494,6 +1502,8 @@ async function handleImport(event: Event) {
   if (file.size > 50 * 1024 * 1024) { alert('文件超过 50MB，暂不支持导入。'); return }
   try {
     const imported = importBookJson(JSON.parse(await file.text()))
+    // 先算账再动内存：装不进存储配额就直接拒绝导入，不留一本「只在内存里」的书拖垮后续自动保存
+    assertStorageFits({ ...data.value, books: [imported, ...data.value.books] })
     data.value.books.unshift(imported)
     selectBook(imported.id)
     flushSave()
@@ -1536,12 +1546,14 @@ async function handleBackupImport(event: Event) {
   let addedRecords = 0
   let sideNote = ''
   if (overwrite) {
+    try { assertStorageFits(backup.data) } catch (error) { backupNotice.value = error instanceof Error ? error.message : '备份体积超出浏览器存储上限，无法恢复。'; return }
     data.value = backup.data
     if (backup.workflow) { workflowArchive.value = backup.workflow; saveWorkflowArchive(backup.workflow) }
     saveRankStore({ ...emptyRankStore(), snapshots: backup.rank?.snapshots || [] })
     saveBreakdownStore({ ...emptyBreakdownStore(), projects: backup.breakdown?.projects || [] })
   } else {
     const merged = mergeWorkspaceBackup(data.value, backup.data)
+    try { assertStorageFits(merged.data) } catch (error) { backupNotice.value = error instanceof Error ? error.message : '备份体积超出浏览器存储上限，无法合并。'; return }
     data.value = merged.data
     const records = mergeWorkflowRecords(workflowArchive.value.records, backup.workflow?.records || [])
     addedRecords = records.added

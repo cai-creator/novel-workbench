@@ -1,5 +1,5 @@
 import { equal, ok, test, throws } from './harness'
-import { buildBookFromWorkflow, createWorkflowRecord, emptyWorkflow, exportWorkflowArchive, importWorkflowArchive, loadWorkflowArchive, parseChapterPlan, saveWorkflowArchive, workflowPrompt, type WorkflowDraft } from '../src/workflow'
+import { buildBookFromWorkflow, createWorkflowRecord, emptyWorkflow, exportWorkflowArchive, importWorkflowArchive, loadWorkflowArchive, MAX_WORKFLOW_RECORDS, parseChapterPlan, pruneWorkflowRecords, saveWorkflowArchive, workflowPrompt, type WorkflowDraft } from '../src/workflow'
 
 const LEGACY_KEY = 'novel-workbench-next/workflow-v1'
 const ARCHIVE_KEY = 'novel-workbench-next/workflow-archive-v2'
@@ -111,6 +111,41 @@ test('建书记录可保存、导出并再次导入', () => {
   equal(exported.format, 'novel-workbench-next/workflow-archive-v2')
   const again = importWorkflowArchive(exported)
   equal(again[0].draft.title, '暂存的草稿', '导出后可再导入')
+})
+
+test('pruneWorkflowRecords 超限时先挤最旧草稿，完成记录最后动', () => {
+  const draftRecord = (id: string) => ({ id, status: 'draft' as const, draft: emptyWorkflow(), updatedAt: '2026-09-20T00:00:00.000Z' })
+  const doneRecord = (id: string) => ({ id, status: 'completed' as const, draft: emptyWorkflow(), updatedAt: '2026-09-20T00:00:00.000Z', completedAt: '2026-09-20T00:00:00.000Z' })
+  // 新记录在前、旧记录在后（与 unshift 行为一致）
+  const records = [
+    draftRecord('newest-draft'),
+    ...Array.from({ length: 150 }, (_, index) => doneRecord(`done-${index}`)),
+    ...Array.from({ length: 60 }, (_, index) => draftRecord(`old-draft-${index}`)),
+  ]
+  const { records: kept, pruned } = pruneWorkflowRecords(records)
+  equal(MAX_WORKFLOW_RECORDS, 200, '上限与导入一致')
+  equal(pruned, 11, '只挤掉 11 条最旧草稿')
+  equal(kept.length, 200)
+  ok(kept.every(item => item.id !== 'old-draft-59' && item.id !== 'old-draft-58'), '最旧的草稿先被挤掉')
+  ok(kept.some(item => item.id === 'old-draft-0'), '较新的草稿保留')
+  ok(kept.some(item => item.id === 'done-149'), '最旧的完成记录也不动')
+  equal(kept.filter(item => item.status === 'completed').length, 150, '完成记录一条不动')
+
+  // 草稿挤完仍超：只能挤最旧的完成记录
+  const overflow = [...Array.from({ length: 30 }, (_, index) => draftRecord(`d-${index}`)), ...Array.from({ length: 190 }, (_, index) => doneRecord(`c-${index}`))]
+  const second = pruneWorkflowRecords(overflow)
+  equal(second.pruned, 20, '草稿不足时挤最旧的完成记录')
+  equal(second.records[0].id, 'd-0', '最新记录保留')
+})
+
+test('saveWorkflowArchive 保存时自动裁剪超限记录', () => {
+  clearStorage()
+  const records = Array.from({ length: 210 }, (_, index) => createWorkflowRecord(draft({ title: `草稿${index}` })))
+  saveWorkflowArchive({ version: 2, activeId: records[0].id, records })
+  const archive = loadWorkflowArchive()
+  equal(archive.records.length, MAX_WORKFLOW_RECORDS, '落盘记录数不超过上限')
+  equal(archive.records[0].id, records[0].id, '最新记录保留')
+  clearStorage()
 })
 
 test('首次读取接续旧版单草稿并清理旧存储键', () => {

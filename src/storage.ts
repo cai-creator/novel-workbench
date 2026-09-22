@@ -308,6 +308,10 @@ export function isProjectData(value: unknown): value is ProjectData {
 }
 
 /** 导入时重建所有 ID，避免与现有作品碰撞；不导入任何模型密钥。 */
+export const MAX_IMPORT_CHAPTERS = 500
+export const MAX_IMPORT_LORE = 200
+export const MAX_IMPORT_CHAT = 500
+
 export function importBookJson(value: unknown): Book {
   if (!value || typeof value !== 'object') throw new Error('不是有效的作品文件')
   const payload = value as { format?: unknown; book?: unknown }
@@ -321,6 +325,8 @@ export function importBookJson(value: unknown): Book {
         typeof item.content === 'string' && ['world', 'character', 'timeline', 'plot'].includes(item.mode))) {
     throw new Error('作品缺少必要章节或设定字段，无法导入。')
   }
+  // 条数先于内容校验拒绝：超大文件不该等到落盘失败才被挡住
+  if (source.chapters.length > MAX_IMPORT_CHAPTERS) throw new Error(`作品章节数超过上限 ${MAX_IMPORT_CHAPTERS} 章，无法导入。`)
   const chapterIds = new Map<string, string>()
   const chapters = source.chapters.map(item => {
     const id = uid()
@@ -342,11 +348,12 @@ export function importBookJson(value: unknown): Book {
     }
     return chapter
   })
-  const lore = source.lore.map(item => ({ id: uid(), title: item.title, content: item.content,
+  const lore = source.lore.slice(0, MAX_IMPORT_LORE).map(item => ({ id: uid(), title: item.title, content: item.content,
     mode: item.mode, timeLabel: typeof item.timeLabel === 'string' ? item.timeLabel : undefined }))
   const chat = Array.isArray(source.chat)
     ? source.chat.filter(item => item && ['user', 'assistant'].includes(item.role) &&
         ['prose', 'world', 'character', 'plot'].includes(item.mode) && typeof item.content === 'string')
+      .slice(-MAX_IMPORT_CHAT)
       .map(item => ({ id: uid(), role: item.role, mode: item.mode, content: item.content,
         chapterId: chapterIds.get(String(item.chapterId || '')), adopted: !!item.adopted }))
     : []

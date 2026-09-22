@@ -436,10 +436,10 @@
 
     <div v-if="showBreakdownPicker" class="overlay" @click.self="showBreakdownPicker = false">
       <section class="modal preview-modal" role="dialog" aria-modal="true" aria-label="从拆书带入素材">
-        <div class="modal-head"><div><small>BREAKDOWN</small><h2>从拆书带入 · {{ breakdownPickerFieldLabels[breakdownPickerField] }}</h2></div><button class="icon-button" aria-label="关闭" @click="showBreakdownPicker = false">×</button></div>
+        <div class="modal-head"><div><small>BREAKDOWN</small><h2>{{ breakdownPickerStage === 'tweak' ? '微调后再带入' : `从拆书带入 · ${breakdownPickerFieldLabels[breakdownPickerField]}` }}</h2></div><button class="icon-button" aria-label="关闭" @click="showBreakdownPicker = false">×</button></div>
         <p class="modal-note">拆书库里按类型分开存放的素材。勾选要带进的类型，内容会追加到当前字段，之后仍可自由修改。</p>
         <p v-if="breakdownPickerNotice" class="workflow-history-notice" role="status">{{ breakdownPickerNotice }}</p>
-        <div class="bd-picker-list">
+        <div v-if="breakdownPickerStage === 'pick'" class="bd-picker-list">
           <article v-for="project in breakdownPickerProjects" :key="project.id" class="bd-picker-card">
             <header><h3>{{ project.title }}</h3><span>已拆 {{ project.chapters.filter(item => item.status === 'done').length }} 章 · 素材 {{ countBreakdownMaterials(project.materials) }} 条</span></header>
             <div class="bd-picker-kinds" role="group" :aria-label="`${project.title} 的素材类型`">
@@ -448,9 +448,14 @@
                 {{ breakdownMaterialLabels[kind] }}<small>{{ project.materials[kind].length }}</small>
               </label>
             </div>
-            <button class="primary" type="button" @click="applyBreakdownMaterials(project.id)">带进{{ breakdownPickerFieldLabels[breakdownPickerField] }}</button>
+            <button class="primary" type="button" @click="prepareBreakdownMaterials(project.id)">带进{{ breakdownPickerFieldLabels[breakdownPickerField] }}</button>
           </article>
           <p v-if="!breakdownPickerProjects.length" class="muted">拆书库还是空的。先去「竞品拆书」页导入一本书，拆出素材后就能在这里按类型取用。</p>
+        </div>
+        <div v-else class="bd-picker-tweak">
+          <p class="bd-picker-tweak-meta">带入{{ breakdownPickerFieldLabels[breakdownPickerField] }}：{{ breakdownDraftMeta }}</p>
+          <textarea v-model="breakdownDraftText" class="preview-textarea" aria-label="待带入的素材内容，可自行修改" />
+          <div class="modal-actions"><button class="secondary" type="button" @click="breakdownPickerStage = 'pick'">← 重新选择</button><button class="primary" type="button" :disabled="!breakdownDraftText.trim()" @click="confirmBreakdownMaterials">确认带入</button></div>
         </div>
       </section>
     </div>
@@ -527,6 +532,20 @@ const showBreakdownPicker = ref(false)
 const breakdownPickerField = ref<BreakdownPickerField>('idea')
 const breakdownPickerKinds = ref<Record<string, BreakdownMaterialKind[]>>({})
 const breakdownPickerNotice = ref('')
+/** 选取器两步：先勾类型，再把排好的素材改到满意才带入字段 */
+const breakdownPickerStage = ref<'pick' | 'tweak'>('pick')
+/** 每本书暂存一份改过的素材文本，回上一步重选类型再回来不会丢；类型变了才重新生成 */
+const breakdownDrafts = ref<Record<string, { kinds: string; text: string }>>({})
+const breakdownDraftProjectId = ref('')
+const breakdownDraftText = computed({
+  get: () => breakdownDrafts.value[breakdownDraftProjectId.value]?.text || '',
+  set: (value: string) => {
+    const current = breakdownDrafts.value[breakdownDraftProjectId.value]
+    if (!current) return
+    breakdownDrafts.value = { ...breakdownDrafts.value, [breakdownDraftProjectId.value]: { ...current, text: value } }
+  },
+})
+const breakdownDraftMeta = ref('')
 const breakdownPickerProjects = computed(() => breakdownStore.value.projects.filter(item => countBreakdownMaterials(item.materials) > 0))
 
 function openBreakdownPicker(field: BreakdownPickerField) {
@@ -535,6 +554,9 @@ function openBreakdownPicker(field: BreakdownPickerField) {
   breakdownPickerField.value = field
   breakdownPickerKinds.value = Object.fromEntries(breakdownPickerProjects.value.map(item => [item.id, [...breakdownPickerDefaults[field]]]))
   breakdownPickerNotice.value = ''
+  breakdownPickerStage.value = 'pick'
+  breakdownDrafts.value = {}
+  breakdownDraftProjectId.value = ''
   showBreakdownPicker.value = true
 }
 
@@ -546,16 +568,31 @@ function toggleBreakdownKind(projectId: string, kind: BreakdownMaterialKind) {
   }
 }
 
-function applyBreakdownMaterials(projectId: string) {
+/** 把选中类型排成文本，停在可编辑的微调步，由用户改完再确认带入 */
+function prepareBreakdownMaterials(projectId: string) {
   const project = breakdownStore.value.projects.find(item => item.id === projectId)
   if (!project) return
   const kinds = (breakdownPickerKinds.value[projectId] || []).filter(kind => project.materials[kind].length)
   if (!kinds.length) { breakdownPickerNotice.value = '先勾选至少一类有素材的类型。'; return }
-  const text = formatBreakdownMaterials(project, kinds)
+  const signature = kinds.join(',')
+  const draft = breakdownDrafts.value[projectId]
+  breakdownDraftProjectId.value = projectId
+  breakdownDrafts.value = {
+    ...breakdownDrafts.value,
+    [projectId]: { kinds: signature, text: draft && draft.kinds === signature ? draft.text : formatBreakdownMaterials(project, kinds) },
+  }
+  breakdownDraftMeta.value = `《${project.title}》的${kinds.map(kind => breakdownMaterialLabels[kind]).join('、')}素材`
+  breakdownPickerNotice.value = ''
+  breakdownPickerStage.value = 'tweak'
+}
+
+function confirmBreakdownMaterials() {
+  const text = breakdownDraftText.value.trim()
+  if (!text) { breakdownPickerNotice.value = '内容已清空，没有可带入的素材。'; return }
   const field = breakdownPickerField.value
   const current = workflow.value[field].trim()
   workflow.value = { ...workflow.value, [field]: current ? `${current}\n\n${text}` : text }
-  breakdownPickerNotice.value = `已把《${project.title}》的${kinds.map(kind => breakdownMaterialLabels[kind]).join('、')}素材带进${breakdownPickerFieldLabels[field]}。`
+  breakdownPickerNotice.value = `已把微调后的${breakdownDraftMeta.value}带进${breakdownPickerFieldLabels[field]}。`
   showBreakdownPicker.value = false
 }
 

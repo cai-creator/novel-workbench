@@ -855,6 +855,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .bd-picker-kinds label.disabled { color: #bcaab8; background: #faf6f8; cursor: not-allowed; }
 .bd-picker-kinds small { color: #b3a1b0; font-size: 10px; }
 .bd-picker-card > button { justify-self: start; }
+.bd-picker-tweak-meta { margin: 0 0 8px; color: #6c3554; font-size: 12px; font-weight: 600; }
+.bd-picker-tweak .preview-textarea { min-height: 300px; }
 
 /* 写作统计页 */
 .stats-page { flex: 1; min-height: 0; overflow-y: auto; background: radial-gradient(circle at 82% 0, #dcebf7, transparent 30%), #f5f2f5; }

@@ -461,7 +461,8 @@ function designWorkflowArchive(): WorkflowArchive {
   completed.completedAt = completed.updatedAt
   return { version: 2, activeId: draft.id, records: [draft, completed] }
 }
-const workflowArchive = ref<WorkflowArchive>(designPreview && ['workflow-history', 'backup'].includes(previewPanel || '') ? designWorkflowArchive() : { version: 2, activeId: null, records: [] })
+/** 设计预览只显示样例存档；真实数据下启动时读回本机保存的建书记录，否则刷新后记录与备份都会丢。 */
+const workflowArchive = ref<WorkflowArchive>(designPreview && ['workflow-history', 'backup'].includes(previewPanel || '') ? designWorkflowArchive() : designPreview ? { version: 2, activeId: null, records: [] } : loadWorkflowArchive())
 const workflow = ref<WorkflowDraft>({ ...(workflowArchive.value.records.find(item => item.id === workflowArchive.value.activeId)?.draft || emptyWorkflow()) })
 const workflowHistoryFilter = ref<'all' | 'draft' | 'completed'>('all')
 const workflowHistoryFilters = [{ id: 'all', label: '全部' }, { id: 'draft', label: '未完成' }, { id: 'completed', label: '已建书' }] as const

@@ -262,65 +262,80 @@
 ## P3 小瑕疵与设计取舍
 
 ### P3-1 全量备份内嵌 API Key（已有披露，但无脱敏选项）
+✅ 已修复（commit 6c72f02）：备份导出新增「不含模型密钥」勾选。
 - 位置：`src/App.vue:1503-1511`（`exportWorkspaceBackup` 经 `buildWorkspaceBackup` 带出 `model.apiKey`）。
 - 行为：恢复弹窗有「备份文件里也会写入当前模型密钥」的提示，属有意设计；但把密钥写进会随手发群/云盘的 JSON 文件风险不小。至少可提供「不含密钥」的导出开关，或导出时对密钥打码（`sk-***末四位`）。
 
 ### P3-2 榜单请求留下空 `date=` 参数
+✅ 已修复（commit 6c72f02）：searchParams.delete 清 date 参数。
 - 位置：`src/rank.ts:1224`（`url.searchParams.set('date', '')`，注释称「清掉 date」）。
 - 行为：清掉的参数实际变成 `date=` 空值留在 URL 上。对多数服务器无感，但严格解析 `date=""` 的接口可能返回 400 或按缺省处理不一致；正确写法是 `url.searchParams.delete('date')`。
 
 ### P3-3 榜单日期计算在 DST 时区偏移一天
+✅ 已修复（commit 6c72f02）：localDate 改用日历天数回退，DST 不再错位。
 - 位置：`src/rank.ts:261-262`（`localDate(offsetDays)` 用 `Date.now() - offset*86400000` 取本地日期）。
 - 行为：夏令时切换日（如美区 3 月/11 月）±25h/±23h 与 24h 错位，offset>0 时算出的「N 天前」可能差一天，影响 `dateRange`、保留期裁剪（`pruneRankSnapshots`，rank.ts:675-677）的边界快照。
 
 ### P3-4 `maxTokens` 上限 6500 对最长预设无余量
+✅ 已修复（commit 6c72f02）：maxTokens 上限提到 8000，2500 字以上预设有余量。
 - 位置：`src/ai.ts:113`（`Math.min(6500, Math.max(2400, targetLength * 3))`）。
 - 行为：当前预设 800/1500/2000 字对应 2400/4500/6000，可用；一旦把预设上限提到 2500 字以上（2500×3=7500>6500）即回到截断路径，叠加 P1-5 整段丢弃。属于「改预设就会踩」的埋点。
 
 ### P3-5 设计预览（dev-only）下拆书/扫榜组件仍在读写真实 localStorage
+✅ 已修复（commit 6c72f02）：拆书/扫榜组件在 ?ui-preview=1 下不读写真实 localStorage。
 - 位置：`src/App.vue:482-515`（`designPreview` 只换 App 级 store 为 fixture）vs `src/BreakdownView.vue:254`（组件内 `loadBreakdownStore()` 无 preview 概念）、`src/RankView.vue:327`（`loadRankStore()`）、两者的 `persist()`（BreakdownView.vue:255、RankView.vue:328）直接调真实 `saveBreakdownStore/saveRankStore`。
 - 行为：`pnpm dev` + `?ui-preview=1&panel=breakdown` 时，界面上看到的拆书库是**用户的真实数据**（fixture 只喂了 App 自己的 picker），在此页导入 TXT / 抓榜单会写进真实存储。与「设计预览不读写用户数据」的契约在组件层漏了一环（仅 dev 模式，影响面小，但预览态改坏真实数据不可恢复——叠加 P0-1 无保护写入）。
 
 ### P3-6 `download()` 一分钟后回收 objectURL 的竞态
+✅ 已修复（commit 6c72f02）：objectURL 回收延长到 60 秒。
 - 位置：`src/App.vue:1328-1334`、`src/RankView.vue:511-518`、`src/BreakdownView.vue:420-424`（三处同款：`setTimeout(revoke, 1000)`）。
 - 行为：浏览器实际开始下载可能晚于 1s（大文件/磁盘慢），此时 URL 已 revoke → 下载出 0 字节/报错。10 秒以上的 CSV（千行榜单）在慢盘上有真实竞态窗口。
 
 ### P3-7 停批拆解与「停止」按钮的语义
+✅ 已修复（随 P2-9，commit 3b78cc2）：停止路径章节退回 wait，processing→failed 的红色抖动消除。
 - 位置：`src/BreakdownView.vue:444-448`（`stopRun` 只 abort，不等 AbortError 落地）。
 - 行为：点「停止」瞬间 running 置 false（finally），但当前章节的 AbortError 还要几十 ms 才进内层 catch 标 failed → 极短窗口内该章显示为 processing，随后变 failed（见 P2-9）。纯视觉抖动，与 P2-9 同修即可。
 
 ### P3-8 AI 采纳的字数记账口径不一致：「替换」按全量、「划词」按净差
+✅ 已修复（commit 6c72f02）：AI 采纳字数统一记净差，替换/追加、各入口一致。
 - 位置：`src/App.vue:1324`（逐章生文采纳，`replace` 模式记 `countWords(新正文) - 0`，即**整章新正文**全记为当日 ai 字数）与 `src/App.vue:1453`（聊天采纳同款全量口径）对比 `src/App.vue:992`（划词修改采纳只记**净差** `新片段 - 原片段`，负值被 `recordWords` 的 `chars > 0` 过滤掉）。
 - 行为：同样是「AI 改了一段文字」，从哪个入口采纳、选哪种写入方式，当天统计差很多：3000 字旧稿被 2500 字新稿替换，候选采纳路径记 ai +2500，划词路径记 0（净差为负）。两路数据放在一起看统计页时会互相矛盾。
 - 建议：统一口径（建议都记「本次动作的净增量」），并在统计页脚注说明口径。
 
 ### P3-9 划词修改原文无长度上限，整章选区可全量发给模型
+✅ 已修复（commit 6c72f02）：划词 2000 字上限，超限 toast 拒绝。
 - 位置：`src/ai.ts:134-150`（`refineSelection` 把 `text`（选区原文）整段拼进 prompt；`maxTokens` 被钳到 ≤2400 但**输入侧无任何截断**）+ `src/App.vue:951-960`（`updateSelectionBubble` 对选区大小无检查）。
 - 行为：用户选中整章（数万字）点「润色」，全量选区随请求发出——上下文/费用失控；而输出上限 2400 token 根本装不下整章，返回的"润色结果"只是片段，采纳时 2400 字片段去替换数万字原文（App.vue:979-997 的 stale-guard 通过后会真替换），行为与用户预期（整段润色）相悖。
 - 建议：选区超过阈值（如 2000 字）时提示「请缩小选区」或自动截断并明示。
 
 ### P3-10 竞品 ID 输入无条数上限，大输入卡死页面
+✅ 已修复（commit 6c72f02）：竞品 ID 去重封顶 50 个并提示。
 - 位置：`src/RankView.vue:190`（`rivalIds` 自由文本输入，无长度/条数校验）+ `src/rank.ts:996-1017`（`rankCompetitor` 对 bookIds 不去重、不封顶：`≤60 天 × N 个 id` 嵌套循环 + 结果表 `N 行 × 最多 61 列` 的同步渲染）。
 - 行为：粘贴上千个竞品 ID，`rankCompetitor` 同步计算加结果表格渲染会把 UI 冻住数十秒至数分钟；输入里的重复 ID 还会原样渲染出重复行。
 
 ### P3-11 七猫接口返回非 JSON 时抛原始 SyntaxError
+✅ 已修复（commit 6c72f02）：非 JSON 响应转为中文风控提示。
 - 位置：`src/rank.ts:1227`（`JSON.parse(text)` 直接解七猫响应；WAF/风控/错误页返回 HTML 时抛 `SyntaxError: Unexpected token '<'…`）。
 - 行为：1241 行注释承诺「抛出的错误一律可读」，唯独这条路径把原始 JSON 语法错误漏给用户，用户看不出「接口没返回 JSON（可能被风控）」。建议 catch 后转成「七猫接口未返回 JSON（可能触发风控或接口变更）」再抛。
 
 ### P3-12 字体乱码熔断只认 PUA 残留，防不住「字典整体失效」
+🔶 评估后不修：「字典整体失效但命中旧码位」无法在本地可靠检出（需要线上字形基准做比对），现有 PUA 残留熔断保留；后续拿到新字典样本可再评估。
 - 位置：`src/rank.ts:508-513`（熔断条件：≥50% 书名残留 ≥2 个私用区字符）+ `310-313`（`decodeFanqieText` 走静态字典 `fanqieFontDict`）。
 - 行为：番茄把混淆字体的**字符表**换掉（PUA 码位映射到新字形集合）时，字典查不到 → PUA 字符原样保留 → 熔断能抓住（这是设计目标）；但若新混淆把书名整体映射到**字典命中的旧码位**（字符合法但含义全错），熔断不触发，错误书名/作者静默入库，污染 120 天趋势数据且无从发现。属低概率防线缺口，建议在熔断旁加一道「字典命中率骤降」的体检。
 
 ### P3-13 粘贴导入与「30 分钟节流」「同日覆盖」互相干扰
+✅ 已修复（commit 6c72f02）：节流文案区分粘贴/抓取，覆盖新鲜快照时告知；粘贴 5MB 闸同批落地。
 - 位置：`src/rank.ts:1266-1268`（节流检查的是「今日快照」，**不分来源**）+ `1311-1326`（`importRankPaste` 无节流、无体积闸）+ `writeRankSnapshot` 的「同源同日覆盖」语义。
 - 行为：① 先粘贴、30 分钟内再点「抓取」→ 被节流拦下，提示「半小时内**刚抓过**」——实际是刚**粘贴**过，文案误导；② 先抓取、30 分钟内再粘贴 → 粘贴**无节流**，直接覆盖新鲜快照，只有「已导入 N 条」提示，用户不知道刚才那份抓取数据没了；③ 粘贴内容无大小上限（同 P2-6 一类），超大 HTML 在主线程跑正则解析可卡死页面。
 
 ### P3-14 建书 AI 的 prompt 上下文无截断，拆书素材带入可无限追加
+✅ 已修复（commit 6c72f02）：workflowPrompt 字段预算截断 + 带入素材超 8000 字先确认。
 - 位置：`src/workflow.ts:134-144`（`workflowPrompt` 把 seed/idea/title/outline/world/characters 全部**原样**拼进 context，输入侧零截断）+ `src/App.vue:1197-1199`（`maxTokens` 只限输出：title 80 / outline 2400 / 其余 1100）+ `src/App.vue:589-597`（`confirmBreakdownMaterials` 用 `${current}\n\n${text}` **追加**进当前字段，多次带入拆书素材可无限膨胀，无体积提示）+ `src/App.vue:1207`（`adoptWorkflowCandidate` 只有 title 钳 60 字，outline/world/characters/timeline 采纳后无长度上限）。
 - 行为：与 P2-4（拆书报告）、P3-9（划词修改）同类的输入侧失控，落在建书链路：字段攒到上万字后，点「让 AI 写大纲/世界观/人物」会把全量字段连同任务说明一起发出——多数 8K 上下文模型直接报 context 超限（原始英文错误，同 P1-5 的报错体验问题）；即使模型吃得下，outline 输出上限只有 2400 token，几万字符输入换回有限篇幅，性价比与用户预期都失控。
 - 建议：`workflowPrompt` 按字段截断（如 outline ≤4000 字、world/characters ≤2000 字，截断处明示）；`confirmBreakdownMaterials` 在目标字段超限时提示「字段已 N 字，继续带入可能超模型上下文」。
 
 ### P3-15 导出文件名口径不一且均无长度上限，长书名导出会被系统截断
+✅ 已修复（commit 6c72f02）：safeFileName 统一 80 字符上限，作品 JSON 导出改走同一函数。
 - 位置：`src/App.vue:1477`（作品 JSON 导出：裸 `book.value.title` 只过一次内联 `[\\/:*?"<>|]` 正则，不去空白、不 trim、不限长）对比 `src/backup.ts:210-213`（TXT 导出用 `safeFileName`：去非法字符、折叠空白，**同样不限长**）与 `src/RankView.vue:509`（榜单 CSV `safeName` 有 `slice(0, 40)`，三处口径各不相同）。
 - 行为：书名可任意长（建书输入无长度闸，AI 产出的 title 也被钳到 60 字但手写不限）。300 字书名导出 TXT/JSON 时文件名超 Windows 单段 255 字节上限 → 下载被浏览器截断或静默失败，与同目录其它导出混在一起认不出来；用户从三个入口导出同一本书，拿到的文件名规则还不一样。
 - 建议：统一走 `safeFileName` 并加长度上限（如 80 字符 + 必要时追加短 uid 尾缀保持唯一性），三处一致。

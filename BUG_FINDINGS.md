@@ -226,12 +226,14 @@
 - 建议：文本字段统一加 `'` 前缀（或以制表符前置）；至少对 `=`/`+`/`-`/`@` 开头的单元格转义。
 
 ### P2-19 拆书 TXT/JSON 导入无体积闸：大文件静默截断 + 文本量不限可打满配额【已实测】
+🔶 配额溢出部分由 P0-1 缓解（commit 989c3b0）：导入后的落盘走 writeStorage，超配额会以中文错误落入本页错误区并弹 toast，不再静默；「大文件静默截断、文本量不限」与提示口径问题待本条修复。
 - 位置：`src/BreakdownView.vue:360-373`（`importTxt` 对 `file.size` 无检查，50MB TXT 照单全收）+ `src/breakdown.ts:253`（章节 `slice(0, 200)`）与 `257`（段落 `slice(0, 2000)`，均**无任何「已截断」提示**）+ `src/BreakdownView.vue:387-401`（JSON 导入 `file.text()` 同样无体积闸）+ `src/breakdown.ts:701-714`（`importBreakdownStore` 入口只限项目数 30，每个项目的段落正文、`characterNames`（587-595 随已拆章节无限累加）、report 文本量均不限）。
 - 行为：① 拖入 50MB TXT → `parseTxtBook` 全文拼接 + `createBreakdownProject` 建 200 章 × 2000 段，超出的章节/段落静默丢弃（与 P2-3/P2-5 同类，用户只看到「第1章…第200章」以为导入完整）；② `persist()` 走 `saveBreakdownStore`（breakdown.ts:692-694，**无配额防护**，同 P0-1/P0-2 一类）→ 超 5MB 共享配额时抛 `QuotaExceededError`，被 importTxt 的 catch（370 行）接住后以原始英文 DOMException 文本写进 `listError`（P1-6 同款体验），且该拆书项目**没进存储**，「导入成功」的界面状态与落盘结果背离；③ 大书经「完成拆解」后 analysis/素材又放大存储体积，反复触发 ②。JSON 导入路径：30 个项目 × 200 章 × 2000 段 × 不限长度的段落文本，导入后同样可静默顶穿配额，波及共享同源的其它 store 保存。
 - **实测证据**（IAB，dev 源经 Vite 直引 `/src/breakdown.ts`）：构造 57MB 大书 TXT（500 章 × 3000 段）→ `parseTxtBook` 解析出 500 章，`createBreakdownProject` 实际只保留 **200 章**、每章只保留 **2000 段**（3000→2000，无任何提示）；解析+建档主线程耗时 714ms；建出的单个项目 `JSON.stringify` 即 **17.51MB**——一个拆书项目就是 5MB 共享配额的 3.5 倍，`saveBreakdownStore` 首次落盘必然 QuotaExceeded（静默或乱飞，见 P0-1/P0-2），刷新后这份「导入成功」的大书整体消失。
 - 建议：导入入口先查 `file.size`（如 TXT ≤10MB / JSON ≤20MB）并给出明确上限；章节/段落超上限时提示「已截断至 200 章/每章 2000 段」；`saveBreakdownStore` 纳入 P0-1/P0-2 的统一配额处置。
 
 ### P2-20 扫榜存档 JSON 导入无体积/条数上限：提示数、库内数、落盘数三者背离【已实测】
+🔶 配额溢出部分由 P0-1 缓解（commit 989c3b0）：导入后的落盘走 writeStorage，超配额会以中文错误提示，不再静默；「体积/条数无上限、三个数字背离」待本条修复。
 - 位置：`src/RankView.vue:619-632`（`handleArchive`：`file.text()` 无体积闸；`importRankStore` 结果逐条 `writeRankSnapshot` 写库；`notice` 报 `docs.length`）+ `src/rank.ts:1105-1117`（`importRankStore` 只校验格式与快照非空，不裁剪条数、不按保留策略收敛）+ `src/rank.ts:704-713`（`writeRankSnapshot` 每写一份即 `filter + prune`）+ `src/rank.ts:669-673`（`saveRankStore` 静默 catch，P0-1 已列）。
 - 行为：导入一份超大「扫榜存档」→ 主线程 `file.text()` + `JSON.parse` + 逐条归一化（每快照最多 200 条）冻结界面；随后提示「已导入 N 份快照」，但库内实际只按「120 天保留期 + 400 份总量」留存一份，且 `persist()` 的 `saveRankStore` 在配额溢出时**静默失败**（P0-1）——提示数、内存数、落盘数互不相同，刷新后数据凭空消失。与 P2-16（作品导入）、P2-19（拆书导入）同类的导入入口缺口。
 - **实测证据**（IAB，dev 源经 Vite 直引 `/src/rank.ts`）：构造 468MB 存档（6300 份快照 × 120 条，其中 6000 份为同源同日重复键）→ `JSON.parse + importRankStore` 主线程耗时 **1492ms**；写库循环本身仅 17ms，但触发 6300 次响应式 `store.snapshots` 重赋值；UI 将显示「已导入 6300 份快照」，而 `writeRankSnapshot` 循环后 store 实际只剩 **301 份**（保留策略裁剪）；最终 store JSON **22.37MB**，约为 5MB 共享配额的 4.5 倍 → `saveRankStore` 静默吞掉 QuotaExceeded，刷新后快照全丢。现实口径：单源每日抓取 120 天 × 200 条/份的存档约 15MB，同样顶穿配额。

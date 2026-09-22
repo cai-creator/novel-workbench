@@ -297,6 +297,12 @@ const normalizeSpaces = (text: string): string => decodeEntities(stripTags(text)
 
 const normalizeUrlAttr = (url?: string | null): string => String(url || '').trim().replace(/&amp;/g, '&')
 
+/** 入库链接只放行 http(s) 与站点内相对路径：手填 JSON 入口可能带 javascript: 等可执行协议 */
+const safeHttpUrl = (url?: string | null): string => {
+  const text = normalizeUrlAttr(url)
+  return /^https?:\/\//i.test(text) || text.startsWith('/') ? text : ''
+}
+
 const toAbsoluteUrl = (base: string, maybePath?: string | null): string => {
   const path = String(maybePath || '').trim()
   if (!path) return ''
@@ -530,7 +536,7 @@ export function parseQimaoRankJson(input: unknown): RankItem[] {
     const row = (list[index] || {}) as Record<string, unknown>
     const bookId = String(row.book_id || '').trim() || null
     const bookTitle = normalizeSpaces(String(row.title || ''))
-    const bookUrl = String(row.book_url || '').trim() || toAbsoluteUrl(QIMAO_BASE, `/shuku/${bookId || ''}/`)
+    const bookUrl = safeHttpUrl(String(row.book_url || '')) || toAbsoluteUrl(QIMAO_BASE, `/shuku/${bookId || ''}/`)
     if (!bookTitle || !bookUrl) continue
     const metricValue = (() => {
       const value = Number(String(row.number || '').trim())
@@ -589,7 +595,7 @@ function normalizeItem(value: unknown): RankItem | null {
   if (!value || typeof value !== 'object') return null
   const row = value as Record<string, unknown>
   const bookTitle = String(row.bookTitle || '').trim()
-  const bookUrl = String(row.bookUrl || '').trim()
+  const bookUrl = safeHttpUrl(String(row.bookUrl || ''))
   if (!bookTitle || !bookUrl) return null
   return {
     rankNo: asInt(row.rankNo, 0),
@@ -609,9 +615,9 @@ function normalizeItem(value: unknown): RankItem | null {
     rankChangeDelta: row.rankChangeDelta == null ? null : asInt(row.rankChangeDelta, 0),
     prevMetricValue: row.prevMetricValue == null ? null : asInt(row.prevMetricValue, 0),
     metricDelta: row.metricDelta == null ? null : asInt(row.metricDelta, 0),
-    coverUrl: String(row.coverUrl || '').trim() || null,
+    coverUrl: safeHttpUrl(String(row.coverUrl || '')) || null,
     lastChapterTitle: String(row.lastChapterTitle || '').trim() || null,
-    lastChapterUrl: String(row.lastChapterUrl || '').trim() || null,
+    lastChapterUrl: safeHttpUrl(String(row.lastChapterUrl || '')) || null,
     lastUpdateTimeText: String(row.lastUpdateTimeText || '').trim() || null,
     categoryName: String(row.categoryName || '').trim() || null,
     categorySubName: String(row.categorySubName || '').trim() || null,

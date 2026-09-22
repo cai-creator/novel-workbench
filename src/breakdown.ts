@@ -177,13 +177,13 @@ function parseHeadingNo(raw: string): number | null {
   return total + section + current
 }
 
-/** 标题候选行排雷：带句读的是句子；序号不往前走的是回指，都不拿来切章。 */
+/** 标题候选行排雷：带句读的是句子；序号不往前走的是回指，都不拿来切章。序章（第零章）不按回指处理，前后出现都收。 */
 function acceptHeading(match: RegExpMatchArray, lastNo: number): { pass: boolean; no: number | null } {
   const [, noText, separator, rest] = match
   if (/[。！？!?…]/.test(rest)) return { pass: false, no: null }
   if (!separator && /[，,、；;：:]/.test(rest)) return { pass: false, no: null }
   const no = parseHeadingNo(noText)
-  if (no != null && lastNo > 0 && no <= lastNo) return { pass: false, no }
+  if (no != null && no > 0 && lastNo > 0 && no <= lastNo) return { pass: false, no }
   return { pass: true, no }
 }
 

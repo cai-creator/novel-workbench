@@ -476,7 +476,7 @@ import { breakdownMaterialKinds, breakdownMaterialLabels, countBreakdownMaterial
 import { emptyRankStore, loadRankStore, saveRankStore } from './rank'
 import { FONT_SIZE_RANGE, loadEditorPrefs, saveEditorPrefs } from './prefs'
 import { createBook, importBookJson, loadData, now, recordChapterVersion, releaseCorruptDataProtection, saveData, takeCorruptDataNotice, uid, type Book, type ChatEntry, type Chapter, type ChapterVersion, type InspirationNote, type LoreMode, type Mode } from './storage'
-import { currentStreak, dateKey, DEFAULT_DAILY_GOAL, heatLevel, monthMatrix, pruneStatsBooks, recordWords, totalsFor, trendSeries } from './stats'
+import { currentStreak, dateKey, heatLevel, monthMatrix, pruneStatsBooks, recordWords, totalsFor, trendSeries } from './stats'
 import { buildBookFromWorkflow, createWorkflowRecord, emptyWorkflow, exportWorkflowArchive, importWorkflowArchive, loadWorkflowArchive, MAX_WORKFLOW_RECORDS, parseChapterPlan, saveWorkflowArchive, workflowPrompt, type WorkflowArchive, type WorkflowDraft, type WorkflowField, type WorkflowRecord } from './workflow'
 import { assertStorageFits, onQuotaWarning } from './quota'
 
@@ -786,9 +786,13 @@ function shiftStatsMonth(delta: number) {
   const cursor = new Date(statsMonth.value.year, statsMonth.value.month + delta, 1)
   statsMonth.value = { year: cursor.getFullYear(), month: cursor.getMonth() }
 }
+/** 清空输入不做「悄悄改成 100」：恢复成上一次的有效目标，想调整必须给出数字 */
+let lastValidGoal = data.value.stats.dailyGoal
 function saveStatsGoal() {
   const goal = Math.round(Number(data.value.stats.dailyGoal))
-  data.value.stats.dailyGoal = Number.isFinite(goal) ? Math.min(100000, Math.max(100, goal)) : DEFAULT_DAILY_GOAL
+  if (!Number.isFinite(goal) || goal <= 0) { data.value.stats.dailyGoal = lastValidGoal; return }
+  data.value.stats.dailyGoal = Math.min(100000, Math.max(100, goal))
+  lastValidGoal = data.value.stats.dailyGoal
 }
 function openStats() { screen.value = 'stats' }
 function recordWordDelta(source: 'manual' | 'ai', bookId: string, chars: number) {

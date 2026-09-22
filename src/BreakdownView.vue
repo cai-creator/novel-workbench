@@ -362,7 +362,7 @@ async function readTxtText(file: File): Promise<string> {
       return new TextDecoder('gb18030', { fatal: true }).decode(bytes)
     }
   } catch {
-    throw new Error('无法正确读取 TXT 编码，请将原文件另存为 UTF-8 后重新导入')
+    throw new Error('无法正确读取 TXT 编码（已依次尝试 UTF-8 与 GB18030，文件可能损坏或使用其他编码）。请将原文件另存为 UTF-8 后重新导入')
   }
 }
 

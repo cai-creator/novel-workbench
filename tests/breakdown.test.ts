@@ -58,6 +58,15 @@ test('parseTxtBook 按卷章标题切分并跳过正文回指', () => {
   ok(parsed.chapters[2].text.includes('第三章正文在此'), '回指句留在正文里')
 })
 
+test('parseTxtBook 第零章前后出现都收为独立章节', () => {
+  const parsed = parseTxtBook('第零章 序幕\n楔子文字。\n\n第一章 起点\n开局。\n\n第二章 发展\n后续。\n', '零章书')
+  equal(parsed.chapters.map(item => item.title), ['第零章 序幕', '第一章 起点', '第二章 发展'], '开头的序章正常切章')
+  ok(parsed.chapters[0].text.includes('楔子文字'))
+  const midBook = parseTxtBook('第一章 起点\n开局。\n\n第零章 序幕\n楔子文字。\n\n第二章 发展\n后续。\n', '零章书')
+  equal(midBook.chapters.map(item => item.title), ['第一章 起点', '第零章 序幕', '第二章 发展'], '夹在中间的第零章不再被并进上一章')
+  ok(midBook.chapters[1].text.includes('楔子文字'))
+})
+
 test('parseTxtBook 识别不出章节时整本作为一章', () => {
   const parsed = parseTxtBook('只有一段没有标题行的正文。', '无章节')
   equal(parsed.chapters.length, 1)

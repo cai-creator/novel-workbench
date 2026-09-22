@@ -17,6 +17,7 @@
 ## P0 数据丢失与存储配额
 
 ### P0-1 五个 localStorage 键共享 ~5MB 配额，各存储的配额处理互不一致，溢出即静默丢数据【已实测】
+✅ 已修复（commit 989c3b0）：新增 `src/quota.ts` 统一入口 `writeStorage`（按 UTF-8 字节预检、单次超 5MB 直接拒并给出体积、setItem 失败统一转中文 `StorageQuotaError` 并广播告警），五个保存函数全部改走该入口；App.vue 订阅告警弹 toast，任何一次写失败至少有一次可见提示。总量预算未做累加式预检：单次写入已按 5MB 精确拦截，总量超限由 setItem 精确判定并以同一中文口径告警，避免大配额浏览器被误拦。
 - 位置：`src/storage.ts:194-196`（`saveData` 无保护）、`src/breakdown.ts:692-694`（`saveBreakdownStore` 无保护）、`src/workflow.ts:80-83`（`saveWorkflowArchive` 无保护）、`src/rank.ts:669-673`（`saveRankStore` 静默 catch）、`src/prefs.ts:22-24`（`saveEditorPrefs` 无保护，字号按钮同步调用，App.vue:815-818）。
 - 容量测算（均写在代码常量里）：
   - 榜单库 `rank-v1`：`RANK_MAX_SNAPSHOTS=400` × `RANK_MAX_ITEMS=200`（rank.ts:185-186），单条快照 JSON 约 60–100KB，理论上限 24–40MB，远超配额。
@@ -31,6 +32,7 @@
 - 建议：统一配额处理——写前预检 `JSON.stringify` 长度并对总量做预算；写失败时至少给用户一次可见告警（toast），而不是四种存储四种行为。
 
 ### P0-2 拆书批量拆解中 persist() 无保护：配额错误被误报成「章节拆解失败」并中断整批【已实测】
+🔶 配额溢出部分由 P0-1 缓解（commit 989c3b0）：persist 改返回布尔值，错误落入本页错误区且为中文口径，不再抛英文 DOMException、不再出现未处理 rejection；「章节停在 processing、整批无解释中止」待本条修复。
 - 位置：`src/BreakdownView.vue:458-485`（`persist()` 在 462、483 行；462 行在内层 try 之前，483 行在 try 外）。
 - 行为：`saveBreakdownStore` 抛 QuotaExceeded 时：
   - 462 行的抛出**不在任何 try 内**（它先于内层 try 执行）→ 直接跳出 for 到 finally，整批中止；章节停在 `processing`，进度条消失，界面无任何解释。
@@ -40,6 +42,7 @@
 - 复现：同 P0-1 注入 QuotaExceeded，然后在拆书页导入 TXT 并点「拆解 N 章」。
 
 ### P0-3 「覆盖恢复」链路中 saveBreakdownStore 无保护：恢复看似成功、重载后旧数据复活
+🔶 配额溢出部分由 P0-1 缓解（commit 989c3b0）：写失败不再静默、不再只抛英文异常，App 会弹中文 toast；「内存已换但落盘失败导致恢复静默回滚、dataEpoch/flushSave 被跳过」待本条修复。
 - 位置：`src/App.vue:1527-1531`（`handleBackupImport` 的 overwrite 分支：`saveRankStore(...)` 静默吞掉配额错误后，`saveBreakdownStore(...)` 若抛出，则其后所有语句被跳过——`dataEpoch += 1`、重选书/章、`flushSave()`）。
 - 行为：主数据 `data.value` 已被备份替换进内存，但落盘失败被抛出 → 内存与磁盘不一致。用户看到「已恢复」提示，刷新页面后 localStorage 里的旧数据被 `loadData` 读回——**恢复静默回滚**，无任何提示。
 - 同链路：`saveWorkflowArchive(backup.workflow)`（App.vue:1528）也 unprotected，先于 saveBreakdownStore 抛出的话后果相同。
@@ -86,6 +89,7 @@
 - 建议：截断时对已返回内容做 `choices[0].message.content` 抢救（trim 后非空即作为截断候选入库并标注「未写完」）。
 
 ### P1-6 创建工作时 QuotaExceeded 以原始英文 DOMException 形式误报
+🔶 配额溢出部分由 P0-1 缓解（commit 989c3b0）：同一处错误现在以中文 `StorageQuotaError` + toast 呈现，用户能区分「AI 出错」与「存储写满」；「表单未重置、作品未入库」的状态半残待本条修复。
 - 位置：`src/App.vue:1211-1231`（`finishWorkflow`：`saveData` 在 try 内（1214 行））。
 - 行为：存储写满时 `localStorage.setItem` 抛出 `DOMException: Failed to execute 'setItem' on 'Storage': ...`，被 1226 行 catch 原样塞进 `workflowError`——用户看到英文浏览器异常文本，误以为「创建作品」这个操作本身出错；且 `created` 书对象已被构造但未入 `data.value.books`，工作流表单也未复位（1215-1224 全部没执行到），状态半残。
 - 关联 P0-1。

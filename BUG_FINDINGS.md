@@ -32,6 +32,7 @@
 - 建议：统一配额处理——写前预检 `JSON.stringify` 长度并对总量做预算；写失败时至少给用户一次可见告警（toast），而不是四种存储四种行为。
 
 ### P0-2 拆书批量拆解中 persist() 无保护：配额错误被误报成「章节拆解失败」并中断整批【已实测】
+✅ 已修复（commit 0668cd7）：persist 返回布尔后批处理不再被写异常打断，落盘失败在工作台错误区弹中文警示（结果仅在内存、刷新即丢），章节状态与 AI 调用照常推进。
 🔶 配额溢出部分由 P0-1 缓解（commit 989c3b0）：persist 改返回布尔值，错误落入本页错误区且为中文口径，不再抛英文 DOMException、不再出现未处理 rejection；「章节停在 processing、整批无解释中止」待本条修复。
 - 位置：`src/BreakdownView.vue:458-485`（`persist()` 在 462、483 行；462 行在内层 try 之前，483 行在 try 外）。
 - 行为：`saveBreakdownStore` 抛 QuotaExceeded 时：
@@ -42,6 +43,7 @@
 - 复现：同 P0-1 注入 QuotaExceeded，然后在拆书页导入 TXT 并点「拆解 N 章」。
 
 ### P0-3 「覆盖恢复」链路中 saveBreakdownStore 无保护：恢复看似成功、重载后旧数据复活
+✅ 已修复（commit 0668cd7）：覆盖/合并恢复的各存储写入包进 try，任一写失败后 dataEpoch、重选书、flushSave、提示照常执行，备份提示如实显示「恢复内容已载入，但写入本机失败：…」，静默回滚消除。
 🔶 配额溢出部分由 P0-1 缓解（commit 989c3b0）：写失败不再静默、不再只抛英文异常，App 会弹中文 toast；「内存已换但落盘失败导致恢复静默回滚、dataEpoch/flushSave 被跳过」待本条修复。
 - 位置：`src/App.vue:1527-1531`（`handleBackupImport` 的 overwrite 分支：`saveRankStore(...)` 静默吞掉配额错误后，`saveBreakdownStore(...)` 若抛出，则其后所有语句被跳过——`dataEpoch += 1`、重选书/章、`flushSave()`）。
 - 行为：主数据 `data.value` 已被备份替换进内存，但落盘失败被抛出 → 内存与磁盘不一致。用户看到「已恢复」提示，刷新页面后 localStorage 里的旧数据被 `loadData` 读回——**恢复静默回滚**，无任何提示。

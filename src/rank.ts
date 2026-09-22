@@ -203,9 +203,6 @@ export const RANK_ORIGIN_LABEL: Record<RankSnapshotOrigin, string> = {
   import: '存档导入',
 }
 
-const BROWSER_UA =
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-
 const BROWSER_CORS_HINT =
   '浏览器受同源策略限制读不到平台站点。用 pnpm dev 启动（已内置 /rank-proxy 代理）可在线抓榜；或把榜单页 HTML / 接口 JSON 粘贴进来手动导入。'
 
@@ -1053,7 +1050,9 @@ export function rankAuthorTrend(
 // ---------------------------------------------------------------------------
 
 const csvEscape = (value: unknown): string => {
-  const text = String(value ?? '')
+  let text = String(value ?? '')
+  // 公式注入防护：=、+、@ 开头（以及 - 开头的非纯数字）会被表格软件当公式执行，前置单引号降级为文本
+  if (/^[=+@]/.test(text) || /^-\D/.test(text)) text = `'${text}`
   return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
 }
 
@@ -1161,7 +1160,8 @@ async function fetchRankText(url: string, accept: string): Promise<string> {
     try {
       const response = await fetch(attempt, {
         method: 'GET',
-        headers: { Accept: accept, 'User-Agent': BROWSER_UA },
+        // User-Agent 是浏览器禁头，带上它 fetch 直接抛 TypeError，抓取永远失败
+        headers: { Accept: accept },
         signal: controller.signal,
       })
       if (!response.ok) {

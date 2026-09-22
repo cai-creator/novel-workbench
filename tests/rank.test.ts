@@ -572,13 +572,18 @@ test('rankAuthorTrend 统计作者每日在榜书本与热度', () => {
 test('exportRankCsv 带 BOM 与转义', () => {
   const store = storeOf(snapshot(1, localDate(), [
     item({ rankNo: 1, bookTitle: '带,逗号"引号"的书', bookUrl: '/a', authorName: '甲', categoryName: '都市', statusText: '连载中', metricText: '12万', rankChangeDelta: 2, lastChapterTitle: '第1章 开局' }),
+    item({ rankNo: 2, bookTitle: '=HYPERLINK("https://evil.com")', bookUrl: '/b', authorName: '+8613800000000', categoryName: '都市', statusText: '连载中', metricText: '11万', rankChange: -1, lastChapterTitle: '@echo 危险' }),
   ]))
   const csv = exportRankCsv({ sourceId: 1 }, store)
   ok(csv.startsWith('﻿'), 'BOM 让 Excel 识别 UTF-8')
-  const [header, row] = csv.slice(1).split('\n')
+  const [header, row1, row2] = csv.slice(1).split('\n')
   equal(header, '名次,书名,作者,分类,状态,指标,名次变动,最新章节')
-  ok(row!.includes('"带,逗号""引号""的书"'), '逗号与引号按 CSV 规则转义')
-  ok(row!.includes('2'), '名次变动取对照值')
+  ok(row1!.includes('"带,逗号""引号""的书"'), '逗号与引号按 CSV 规则转义')
+  ok(row1!.includes('2'), '名次变动取对照值')
+  ok(row2!.includes("'=HYPERLINK"), '等号开头的单元格降级为文本，不再构成公式')
+  ok(row2!.includes("'+8613800000000"), '加号开头同样降级')
+  ok(row2!.includes("'@echo"), '@ 开头同样降级')
+  ok(row2!.includes(',-1,'), '负数名次变动是合法数据，不加前缀')
   throws(() => exportRankCsv({ sourceId: 99 }, store), '没有可导出的榜单数据')
 })
 

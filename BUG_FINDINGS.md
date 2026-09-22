@@ -114,6 +114,7 @@
 - 建议：入库/渲染前统一做 scheme 白名单（仅放行 `http:`/`https:`，其余置空或显示为纯文本）；`coverUrl`（`<img :src>`）虽不可直接执行 JS，建议一并收口。
 
 ### P1-9 扫榜主抓取路径自带禁头：主流浏览器里「抓取」必败，生产部署无可用抓取入口
+✅ 已修复（commit 16cb104）：抓取请求移除 User-Agent 禁头（Firefox 等引擎 fetch 直接抛 TypeError，Chrome 静默剥离永不生效），删除无用常量；直连与代理路径都能正常发请求。
 - 位置：`src/rank.ts:1163-1167`（`fetchRankText` 手动附加 `'User-Agent': BROWSER_UA`，常量定义在 205 行）+ `src/rank.ts:1145-1153`（`proxyPathFor` 仅放行两个 host；vite 代理只在 dev 存在，vite.config.ts:5-12）。
 - 行为：`User-Agent` 是 Fetch 规范的**禁用请求头**，Chrome/Edge/Firefox 等在构造请求时直接抛 `TypeError: Refused to set unsafe header 'User-Agent'`——`fetchRankText` 的两次尝试（代理 + 直连）全部在同一行死掉，`crawlRankSnapshot` 永远以「抓取失败（…浏览器跨域限制）」收场，用户拿不到任何快照。生产部署（`vite build` 静态托管）连 `/rank-proxy` 前缀都不存在，`proxyPathFor` 返回 null → 只剩跨域直连 → 再被 CORS 拦死。即：**只有「dev 环境 + 对禁头宽松的浏览器」这一种组合能抓到数据**；标准浏览器里该功能等于不存在，唯一可靠入口是手动粘贴导入。
 - **实测证据**（本环境为宽松浏览器，故只能证明"代理通、直连死"半边）：`fetch('/rank-proxy/fanqienovel.com/rank/')` → **200**，正文是番茄榜单 HTML（dev 代理可用）；`fetch('https://fanqienovel.com/rank/')` → `TypeError: Failed to fetch`（CORS）；本环境带 `User-Agent` 头的 fetch 未抛错——Chrome/Edge 里同句必抛（Fetch 规范禁用头），故抓取的可用性完全取决于宿主浏览器是否强制执行该规范。
@@ -214,6 +215,7 @@
 - 建议：创建侧对齐导入上限（如 200 条，超了挤掉最旧 draft 并提示）；draft 字段设软性长度上限。
 
 ### P2-18 榜单 CSV 导出无公式注入防护
+✅ 已修复（commit 16cb104）：csvEscape 对 =/+/@ 开头与 - 开头的非纯数字单元格前置单引号降级为文本，负数名次变动等合法数值不受影响。
 - 位置：`src/rank.ts:1056-1059`（`csvEscape` 只处理引号包裹与 `""` 转义，不处理 `=`/`+`/`-`/`@` 开头的单元格）+ `1073-1088`（导出列含书名/作者/最新章节，均为平台作者可填、或经粘贴导入/榜单存档导入注入的文本）。
 - 行为：攻击者在番茄/七猫注册书名为 `=cmd|...`（或经 P1-8 同源的手动导入入口写入任意 `bookUrl` 之外的文本列）→ 用户导出 CSV → Excel/WPS/LibreOffice 打开时该单元格按公式执行 → 本地命令执行或信息外带（经典 CSV injection）。`csvEscape` 的双引号包裹不改变公式语义。
 - 建议：文本字段统一加 `'` 前缀（或以制表符前置）；至少对 `=`/`+`/`-`/`@` 开头的单元格转义。

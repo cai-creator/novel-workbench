@@ -1546,27 +1546,33 @@ async function handleBackupImport(event: Event) {
   if (overwrite) releaseCorruptDataProtection()
   let addedRecords = 0
   let sideNote = ''
+  // 任一存储写失败都不再打断恢复链路：dataEpoch、重选书、flushSave、提示必须走完，否则内存与磁盘悄悄分叉
+  let persistError = ''
   if (overwrite) {
     try { assertStorageFits(backup.data) } catch (error) { backupNotice.value = error instanceof Error ? error.message : '备份体积超出浏览器存储上限，无法恢复。'; return }
     data.value = backup.data
-    if (backup.workflow) { workflowArchive.value = backup.workflow; saveWorkflowArchive(backup.workflow) }
-    saveRankStore({ ...emptyRankStore(), snapshots: backup.rank?.snapshots || [] })
-    saveBreakdownStore({ ...emptyBreakdownStore(), projects: backup.breakdown?.projects || [] })
+    try {
+      if (backup.workflow) { workflowArchive.value = backup.workflow; saveWorkflowArchive(backup.workflow) }
+      saveRankStore({ ...emptyRankStore(), snapshots: backup.rank?.snapshots || [] })
+      saveBreakdownStore({ ...emptyBreakdownStore(), projects: backup.breakdown?.projects || [] })
+    } catch (error) { persistError = error instanceof Error ? error.message : String(error) }
   } else {
     const merged = mergeWorkspaceBackup(data.value, backup.data)
     try { assertStorageFits(merged.data) } catch (error) { backupNotice.value = error instanceof Error ? error.message : '备份体积超出浏览器存储上限，无法合并。'; return }
     data.value = merged.data
     const records = mergeWorkflowRecords(workflowArchive.value.records, backup.workflow?.records || [])
     addedRecords = records.added
-    if (addedRecords) { workflowArchive.value = { ...workflowArchive.value, records: records.records }; saveWorkflowArchive(workflowArchive.value) }
     const currentRank = loadRankStore()
     const currentBreakdown = loadBreakdownStore()
     const side = mergeSideStores(
       { rank: currentRank.snapshots, breakdown: currentBreakdown.projects },
       { rank: backup.rank?.snapshots || [], breakdown: backup.breakdown?.projects || [] }
     )
-    saveRankStore({ ...currentRank, snapshots: side.rank })
-    saveBreakdownStore({ ...currentBreakdown, projects: side.breakdown })
+    try {
+      if (addedRecords) { workflowArchive.value = { ...workflowArchive.value, records: records.records }; saveWorkflowArchive(workflowArchive.value) }
+      saveRankStore({ ...currentRank, snapshots: side.rank })
+      saveBreakdownStore({ ...currentBreakdown, projects: side.breakdown })
+    } catch (error) { persistError = error instanceof Error ? error.message : String(error) }
     const sideParts = [
       side.addedRank || side.updatedRank ? `扫榜快照 新增 ${side.addedRank} 份、更新 ${side.updatedRank} 份` : '',
       side.addedBreakdown || side.updatedBreakdown ? `拆书项目 新增 ${side.addedBreakdown} 个、更新 ${side.updatedBreakdown} 个` : '',
@@ -1575,6 +1581,7 @@ async function handleBackupImport(event: Event) {
     backupNotice.value = `合并完成：新增 ${merged.summary.addedBooks} 部作品、${merged.summary.addedNotes} 条灵感、${addedRecords} 条建书记录${sideNote}；统计合并了 ${merged.summary.changedDays} 天。`
   }
   if (overwrite) backupNotice.value = `已用备份覆盖当前数据：${backup.counts.books} 部作品、${backup.counts.chapters} 章。`
+  if (persistError) backupNotice.value = `恢复内容已载入，但写入本机失败：${persistError} 请先清理浏览器存储空间，再重新恢复或导出备份。`
   dataEpoch.value += 1
   const firstBook = data.value.books[0]
   if (!firstBook) { selectedBookId.value = ''; selectedChapterId.value = ''; screen.value = 'shelf' }

@@ -469,7 +469,7 @@ async function runBatch(chapters: BreakdownChapter[]) {
     for (const chapter of chapters) {
       chapter.status = 'processing'
       chapter.errorMessage = undefined
-      persist()
+      if (!persist()) notifyPersistFailure()
       try {
         const prompt = chapterBreakdownPrompt({
           bookTitle: project.title,
@@ -490,13 +490,18 @@ async function runBatch(chapters: BreakdownChapter[]) {
         chapter.errorMessage = error instanceof Error ? error.message : String(error)
       }
       recalcBreakdownProject(project)
-      persist()
+      if (!persist()) notifyPersistFailure()
       if (signal.aborted) break
     }
   } finally {
     running.value = false
     controller.value = null
   }
+}
+
+/** 批处理中的落盘失败要在当前视图看得见：结果只在内存里，刷新就会丢 */
+function notifyPersistFailure() {
+  workError.value = '本地存储写入失败，拆解结果暂时只在内存里，刷新页面就会丢失。请先清理浏览器存储空间或导出备份，再继续拆解。'
 }
 
 async function generateReport() {

@@ -475,13 +475,15 @@ import RankView from './RankView.vue'
 import { breakdownMaterialKinds, breakdownMaterialLabels, countBreakdownMaterials, emptyStore as emptyBreakdownStore, formatBreakdownMaterials, loadBreakdownStore, saveBreakdownStore, type BreakdownMaterialKind, type BreakdownStore } from './breakdown'
 import { emptyRankStore, loadRankStore, saveRankStore } from './rank'
 import { FONT_SIZE_RANGE, loadEditorPrefs, saveEditorPrefs } from './prefs'
-import { createBook, importBookJson, loadData, now, recordChapterVersion, saveData, uid, type Book, type ChatEntry, type Chapter, type ChapterVersion, type InspirationNote, type LoreMode, type Mode } from './storage'
+import { createBook, importBookJson, loadData, now, recordChapterVersion, releaseCorruptDataProtection, saveData, takeCorruptDataNotice, uid, type Book, type ChatEntry, type Chapter, type ChapterVersion, type InspirationNote, type LoreMode, type Mode } from './storage'
 import { currentStreak, dateKey, DEFAULT_DAILY_GOAL, heatLevel, monthMatrix, pruneStatsBooks, recordWords, totalsFor, trendSeries } from './stats'
 import { buildBookFromWorkflow, createWorkflowRecord, emptyWorkflow, exportWorkflowArchive, importWorkflowArchive, loadWorkflowArchive, parseChapterPlan, saveWorkflowArchive, workflowPrompt, type WorkflowArchive, type WorkflowDraft, type WorkflowField, type WorkflowRecord } from './workflow'
 import { onQuotaWarning } from './quota'
 
 const designPreview = import.meta.env.DEV && new URLSearchParams(location.search).has('ui-preview')
 const data = ref(designPreview ? designFixture() : loadData())
+/** 主数据损坏时原文已被 loadData 暂存到单独键，启动时把原因告诉用户，不再静默开一个空白工作台 */
+const corruptDataNotice = designPreview ? null : takeCorruptDataNotice()
 /** 备份恢复后自增，提醒拆书与扫榜两个自管存储的页面重新读盘 */
 const dataEpoch = ref(0)
 const importInput = ref<HTMLInputElement | null>(null)
@@ -1078,6 +1080,7 @@ function flushSave() {
   catch { saveStatus.value = '保存失败：请检查浏览器存储空间' }
 }
 onMounted(() => {
+  if (corruptDataNotice) showToast(corruptDataNotice)
   window.addEventListener('beforeunload', flushSave)
   window.addEventListener('keydown', handleEditorShortcuts)
   document.addEventListener('selectionchange', handleSelectionChange)
@@ -1526,6 +1529,8 @@ async function handleBackupImport(event: Event) {
   if (!backup) { backupNotice.value = '备份文件格式不受支持，请确认它来自本软件的“下载全量备份”。'; return }
   const overwrite = backupMode.value === 'overwrite'
   if (overwrite && !confirm('覆盖恢复会清空当前全部作品、灵感、统计、扫榜快照与拆书库，确定继续吗？')) return
+  // 用户已确认覆盖：解除「主数据损坏禁止写入」，让恢复能取代主键里的损坏原文
+  if (overwrite) releaseCorruptDataProtection()
   let addedRecords = 0
   let sideNote = ''
   if (overwrite) {

@@ -91,6 +91,69 @@ export interface ProjectData {
 }
 
 const STORAGE_KEY = 'novel-workbench-next/v1'
+/** 主数据损坏时的暂存键：原文先搬到这里，随后的自动保存就没有机会把它覆盖掉 */
+const CORRUPT_STORAGE_KEY = 'novel-workbench-next/v1-corrupt'
+/** 损坏原文最多暂存几份，避免暂存键无限堆积把共享配额占满 */
+const CORRUPT_STASH_SLOTS = 3
+
+/** 最近一次 loadData 检出的损坏提示；App 启动时取走弹给用户，不能让「空白工作台」没有任何解释 */
+let corruptDataNotice: string | null = null
+/** 损坏原文没能暂存、还留在主键里：此时拒绝写入，宁可保存失败也不抹掉唯一副本 */
+let corruptDataProtected = false
+
+/** 取走一次「检测到损坏数据」提示；没有损坏时返回 null。 */
+export function takeCorruptDataNotice(): string | null {
+  const notice = corruptDataNotice
+  corruptDataNotice = null
+  return notice
+}
+
+/** 用户显式恢复备份时调用：确认过覆盖后果后，允许写入取代主键里的损坏原文。 */
+export function releaseCorruptDataProtection(): void {
+  corruptDataProtected = false
+}
+
+export function loadData(): ProjectData {
+  const raw = localStorage.getItem(STORAGE_KEY)
+  if (raw !== null) {
+    try {
+      const parsed: unknown = JSON.parse(raw)
+      const normalized = normalizeProjectData(parsed)
+      if (normalized) {
+        for (const book of normalized.books) for (const chapter of book.chapters) migrateProseCandidates(chapter)
+        return normalized
+      }
+    } catch { /* 解析失败与结构不符都按损坏处理，走下面的暂存逻辑 */ }
+    preserveCorruptData(raw)
+  }
+  return { version: 2, books: [], model: { baseUrl: '', model: '', apiKey: '' }, stats: emptyStatsState(), notes: [] }
+}
+
+/** 损坏原文搬去暂存键：主键留给新的空状态，350ms 后的自动保存再也碰不到它 */
+function preserveCorruptData(raw: string): void {
+  for (let slot = 1; slot <= CORRUPT_STASH_SLOTS; slot += 1) {
+    const key = slot === 1 ? CORRUPT_STORAGE_KEY : `${CORRUPT_STORAGE_KEY}-${slot}`
+    if (localStorage.getItem(key) !== null) continue
+    try {
+      localStorage.setItem(key, raw)
+      localStorage.removeItem(STORAGE_KEY)
+      corruptDataNotice = `检测到本地数据损坏，原文已暂存到本地存储的「${key}」键，不会被自动保存覆盖。本次以空白工作台打开。`
+      return
+    } catch {
+      // 暂存键也写不进去（配额被其他键占满）：原文留在主键，靠拒绝写入保住
+      corruptDataProtected = true
+      corruptDataNotice = '检测到本地数据损坏，但暂存失败（存储空间不足）。请先导出备份并清理存储空间，在此之前不会自动保存。'
+      return
+    }
+  }
+  corruptDataProtected = true
+  corruptDataNotice = '检测到本地数据损坏，但损坏暂存区已满。请先导出备份并清理旧数据，在此之前不会自动保存。'
+}
+
+export function saveData(data: ProjectData): void {
+  if (corruptDataProtected) throw new Error('保存失败：本地数据仍处于损坏状态，请先导出备份再清理')
+  writeStorage(STORAGE_KEY, data)
+}
 
 export const uid = () => crypto.randomUUID()
 export const now = () => new Date().toISOString()
@@ -178,22 +241,6 @@ export function createBook(title: string): Book {
     chapters: [{ id: uid(), title: '第一章', content: '', updatedAt: now() }],
     lore: [], chat: [], updatedAt: now(),
   }
-}
-
-export function loadData(): ProjectData {
-  try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null')
-    const normalized = normalizeProjectData(parsed)
-    if (normalized) {
-      for (const book of normalized.books) for (const chapter of book.chapters) migrateProseCandidates(chapter)
-      return normalized
-    }
-  } catch { /* 损坏数据保留在浏览器里，避免自动覆盖 */ }
-  return { version: 2, books: [], model: { baseUrl: '', model: '', apiKey: '' }, stats: emptyStatsState(), notes: [] }
-}
-
-export function saveData(data: ProjectData): void {
-  writeStorage(STORAGE_KEY, data)
 }
 
 export function isProjectData(value: unknown): value is ProjectData {

@@ -1,5 +1,5 @@
 import { equal, ok, test, throws } from './harness'
-import { createBook, importBookJson, isProjectData, migrateProseCandidates, normalizeNotes, normalizeProjectData, normalizeStats, recordChapterVersion } from '../src/storage'
+import { createBook, importBookJson, isProjectData, loadData, migrateProseCandidates, normalizeNotes, normalizeProjectData, normalizeStats, recordChapterVersion, releaseCorruptDataProtection, saveData, takeCorruptDataNotice } from '../src/storage'
 import { emptyStatsState, MAX_STATS_DAYS } from '../src/stats'
 import type { Chapter, ProjectData } from '../src/storage'
 
@@ -116,4 +116,77 @@ test('importBookJson 拒绝不受支持的文件', () => {
   throws(() => importBookJson(null), 'null 应抛错')
   throws(() => importBookJson({ book: {} }), '缺少格式标记应抛错')
   throws(() => importBookJson({ format: 'other-v1', book: { id: 'x' } }), '错误格式标记应抛错')
+})
+
+const MAIN_KEY = 'novel-workbench-next/v1'
+const STASH_KEYS = ['novel-workbench-next/v1-corrupt', 'novel-workbench-next/v1-corrupt-2', 'novel-workbench-next/v1-corrupt-3']
+const resetCorruptState = () => {
+  localStorage.removeItem(MAIN_KEY)
+  for (const key of STASH_KEYS) localStorage.removeItem(key)
+  releaseCorruptDataProtection()
+  takeCorruptDataNotice()
+}
+const usableData = (): ProjectData => ({ ...project(), books: [createBook('完好作品')] })
+
+test('loadData 检出损坏 JSON 时暂存原文并给出提示，不再静默开空白工作台', () => {
+  resetCorruptState()
+  const broken = '{"version":2,"books":['
+  localStorage.setItem(MAIN_KEY, broken)
+  equal(loadData().books, [], '读不到内容时退回空状态')
+  const notice = takeCorruptDataNotice()
+  ok(notice?.includes('检测到本地数据损坏'), '弹出损坏提示')
+  ok(notice?.includes(STASH_KEYS[0]), '提示指明原文暂存位置')
+  equal(localStorage.getItem(STASH_KEYS[0]), broken, '损坏原文被搬到暂存键')
+  equal(localStorage.getItem(MAIN_KEY), null, '主键让位，随后的自动保存碰不到原文')
+  equal(takeCorruptDataNotice(), null, '同一次提示只取走一次')
+})
+
+test('loadData 对结构不符的数据同样暂存原文', () => {
+  resetCorruptState()
+  const broken = '{"version":3,"books":[]}'
+  localStorage.setItem(MAIN_KEY, broken)
+  equal(loadData().books, [], '结构不符时退回空状态')
+  ok(takeCorruptDataNotice(), '同样给出损坏提示')
+  equal(localStorage.getItem(STASH_KEYS[0]), broken, '原文仍在暂存键里')
+})
+
+test('损坏原文暂存后自动保存写主键，原文不被覆盖', () => {
+  resetCorruptState()
+  const broken = '{"version":2,"books":[{"id":"b1"'
+  localStorage.setItem(MAIN_KEY, broken)
+  loadData()
+  saveData(usableData())
+  equal(localStorage.getItem(STASH_KEYS[0]), broken, '自动保存之后损坏原文仍完整留在暂存键')
+  equal(loadData().books.length, 1, '主键里此时是可用的新数据')
+})
+
+test('暂存区已满时拒绝写入，保住主键里的损坏原文', () => {
+  resetCorruptState()
+  for (const key of STASH_KEYS) localStorage.setItem(key, '更早的损坏原文')
+  const broken = '{"version":2,"books":['
+  localStorage.setItem(MAIN_KEY, broken)
+  loadData()
+  ok(takeCorruptDataNotice()?.includes('暂存区已满'), '提示说明暂存区已满')
+  equal(localStorage.getItem(MAIN_KEY), broken, '原文还留在主键里')
+  throws(() => saveData(usableData()), '保护生效时拒绝写入')
+  equal(localStorage.getItem(MAIN_KEY), broken, '写入被拒后原文仍在')
+})
+
+test('用户确认覆盖恢复后可解除写入保护', () => {
+  resetCorruptState()
+  for (const key of STASH_KEYS) localStorage.setItem(key, '更早的损坏原文')
+  localStorage.setItem(MAIN_KEY, '{"version":2,"books":[')
+  loadData()
+  throws(() => saveData(usableData()), '保护生效时不能写')
+  releaseCorruptDataProtection()
+  saveData(usableData())
+  equal(loadData().books.length, 1, '解除保护后恢复备份可正常落盘')
+})
+
+test('正常数据不受影响：不给提示、不产生暂存键', () => {
+  resetCorruptState()
+  saveData(usableData())
+  equal(takeCorruptDataNotice(), null, '正常加载没有损坏提示')
+  equal(loadData().books.length, 1, '正常数据原样读回')
+  for (const key of STASH_KEYS) equal(localStorage.getItem(key), null, '不产生暂存键')
 })

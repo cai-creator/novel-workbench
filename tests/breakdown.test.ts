@@ -4,15 +4,19 @@ import {
   BREAKDOWN_FILE_FORMAT,
   buildBreakdownMarkdown,
   chapterBreakdownPrompt,
+  collectBreakdownMaterials,
   countBreakdownWords,
+  countBreakdownMaterials,
   createBreakdownProject,
   exportBreakdownStore,
   extractJsonObject,
+  formatBreakdownMaterials,
   importBreakdownStore,
   loadBreakdownStore,
   mergeCharacterNames,
   normalizeAnalysis,
   normalizeChapterAnalysis,
+  normalizeProject,
   parseTxtBook,
   recalcBreakdownProject,
   retryableBreakdownChapters,
@@ -269,6 +273,117 @@ test('拆书存档可导出并再次导入（ID 重建）', () => {
 test('importBreakdownStore 拒绝超大与空文件', () => {
   throws(() => importBreakdownStore({ format: BREAKDOWN_FILE_FORMAT, projects: Array.from({ length: 31 }, () => ({ id: 'x', chapters: [{ id: 'c', title: 't', paragraphs: ['p'], status: 'wait', wordCount: 1, sortNo: 1, insightIds: [], analysis: null }] })) }), '项目超过')
   throws(() => importBreakdownStore({ format: BREAKDOWN_FILE_FORMAT, projects: [{ id: 'x', chapters: [] }] }), '没有可导入')
+})
+
+test('collectBreakdownMaterials 按类型分开聚合素材并记住出处', () => {
+  const project = projectOf([{ title: '第一章 零点钟声', text: '一。\n二。' }, { title: '第二章 回声', text: '三。' }], '素材书')
+  const { analysis } = normalizeChapterAnalysis({
+    summary: '主角数钟声。',
+    outline: [{ title: '零点', startPara: 1, endPara: 1, text: '定调', tags: [{ text: '钩子', tone: 'hot' }] }],
+    rhythm: [{ label: '开篇钩子', value: '强', desc: '第一句即悬念' }],
+    setting: [{ name: '钟墙', type: '地点', desc: '会回响的墙' }],
+    relations: [{ from: '他', to: '她', relation: '旧识', desc: '对话带出' }],
+  }, 2)
+  project.chapters[0].status = 'done'
+  project.chapters[0].analysis = analysis
+  project.report = {
+    editorNotes: '最值得学的是开篇钩子。',
+    outlineRecovery: [{ stage: '开局', chapters: '1', goal: '立住主角', payoff: '第十三声' }],
+    characterArcs: [{ name: '他', keyChapters: [1], arc: '从数钟到听钟' }],
+    foreshadowLedger: [],
+    pacingCurve: [],
+    reusableTechniques: ['先声夺人'],
+  }
+  recalcBreakdownProject(project)
+  const materials = project.materials
+  equal(countBreakdownMaterials(materials), 8)
+  equal(materials.character.length, 2, '人物关系与人物弧线都进人设')
+  equal(materials.character[0].label, '他 → 她（旧识）')
+  equal(materials.character[0].chapterSortNo, 1)
+  equal(materials.character[1].label, '他（第1章）', '全书报告的条目不记章节号')
+  equal(materials.character[1].chapterSortNo, 0)
+  equal(materials.rhythm[0].label, '开篇钩子（强）')
+  equal(materials.setting[0].label, '钟墙·地点')
+  equal(materials.outline[0].label, '零点（1-1段）')
+  ok(materials.outline[0].text.includes('定调【钩子】'), '节点标签跟着正文走')
+  equal(materials.outline.length, 2, '关键节点与全书报告的大纲反推都进节点')
+  equal(materials.outline[1].label, '开局（1）')
+  equal(materials.technique.length, 2, '可复用技巧与编辑手记都进技巧')
+  equal(materials.technique[1].label, '编辑手记')
+})
+
+test('collectBreakdownMaterials 跳过未拆解的章', () => {
+  const project = projectOf([{ title: '第一章', text: '一。' }, { title: '第二章', text: '二。' }])
+  const { analysis } = normalizeChapterAnalysis({ summary: 's', relations: [{ from: '甲', to: '乙', relation: '师徒', desc: '传功' }] }, 1)
+  project.chapters[1].status = 'done'
+  project.chapters[1].analysis = analysis
+  recalcBreakdownProject(project)
+  equal(project.materials.character.length, 1)
+  equal(project.materials.character[0].chapterSortNo, 2, '素材记的是真实章序')
+})
+
+test('formatBreakdownMaterials 只带选中的类型并标注出处', () => {
+  const project = projectOf([{ title: '第一章 零点钟声', text: '一。' }], '素材书')
+  project.author = '作者甲'
+  const { analysis } = normalizeChapterAnalysis({
+    summary: 's',
+    outline: [{ title: '零点', startPara: 1, endPara: 1, text: '定调' }],
+    rhythm: [{ label: '开篇钩子', value: '强', desc: '第一句即悬念' }],
+    setting: [{ name: '钟墙', type: '地点', desc: '会回响的墙' }],
+    relations: [{ from: '他', to: '她', relation: '旧识', desc: '对话带出' }],
+  }, 1)
+  project.chapters[0].status = 'done'
+  project.chapters[0].analysis = analysis
+  recalcBreakdownProject(project)
+  const outlineText = formatBreakdownMaterials(project, ['outline'])
+  ok(outlineText.includes('《素材书》（作者：作者甲）'), '带上来历提示这是参考')
+  ok(outlineText.includes('【节点】'))
+  ok(outlineText.includes('- 零点（1-1段）：定调（第1章）'))
+  ok(!outlineText.includes('【人设】') && !outlineText.includes('【节奏】'), '没选中的类型不带进去')
+  equal(formatBreakdownMaterials(project, []), '', '一类都没选就不产出文本')
+})
+
+test('normalizeProject 为没有素材字段的旧存档补出分类素材', () => {
+  const project = projectOf([{ title: '第一章', text: '一。' }])
+  const { analysis } = normalizeChapterAnalysis({ summary: 's', relations: [{ from: '甲', to: '乙', relation: '敌对', desc: '对峙' }] }, 1)
+  project.chapters[0].status = 'done'
+  project.chapters[0].analysis = analysis
+  recalcBreakdownProject(project)
+  const legacy = JSON.parse(JSON.stringify(project)) as Record<string, unknown>
+  delete legacy.materials
+  const restored = normalizeProject(legacy)
+  ok(restored !== null)
+  equal(restored!.materials.character.length, 1, '旧存档读盘时按当前章节重新聚合')
+  equal(restored!.materials.character[0].text, '对峙')
+})
+
+test('buildBreakdownMarkdown 带上按类型分开的素材', () => {
+  const project = projectOf([{ title: '第一章 零点钟声', text: '一。\n二。' }, { title: '第二章 回声', text: '三。' }])
+  const { analysis } = normalizeChapterAnalysis({
+    summary: '主角数钟声。',
+    outline: [{ title: '零点', startPara: 1, endPara: 2, text: '定调', tags: [{ text: '钩子', tone: 'hot' }] }],
+    rhythm: [{ label: '开篇钩子', value: '强', desc: '第一句即悬念' }],
+    setting: [{ name: '钟墙', type: '地点', desc: '会回响的墙' }],
+    relations: [{ from: '他', to: '她', relation: '旧识', desc: '对话带出' }],
+  }, 2)
+  project.chapters[0].status = 'done'
+  project.chapters[0].analysis = analysis
+  project.chapters[0].insightIds = [1, 1]
+  project.report = {
+    editorNotes: '最值得学的是开篇钩子。',
+    outlineRecovery: [{ stage: '开局', chapters: '1', goal: '立住主角', payoff: '第十三声' }],
+    characterArcs: [{ name: '他', keyChapters: [1], arc: '从数钟到听钟' }],
+    foreshadowLedger: [{ item: '第十三声', plantChapter: 1, payoffChapter: 2, status: 'recovered' }],
+    pacingCurve: [{ chapterNo: 1, score: 4, label: '开篇钩子' }],
+    reusableTechniques: ['先声夺人'],
+  }
+  recalcBreakdownProject(project)
+  const markdown = buildBreakdownMarkdown(project)
+  ok(markdown.includes('## 分类素材'), '导出文件里也有按类型分开的素材')
+  ok(markdown.includes('### 人设') && markdown.includes('### 节奏') && markdown.includes('### 设定') && markdown.includes('### 节点') && markdown.includes('### 技巧'))
+  ok(markdown.includes('- 他（第1章）：从数钟到听钟（全书报告）'), '素材条目带出处')
+  const materialSection = markdown.slice(markdown.indexOf('## 分类素材'), markdown.indexOf('## 全书汇总'))
+  ok(!materialSection.includes('伏笔'), '伏笔账本不混进素材分组，仍只在全书汇总里')
 })
 
 runAll('breakdown')

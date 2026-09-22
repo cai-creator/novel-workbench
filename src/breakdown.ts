@@ -98,12 +98,43 @@ export interface BreakdownProject {
   chapters: BreakdownChapter[]
   report: BreakdownReport | null
   characterNames: string[]
+  /** 按类型分开存放的素材，供建书流程等后续环节取用。 */
+  materials: BreakdownMaterials
 }
 
 export interface BreakdownStore {
   version: 1
   projects: BreakdownProject[]
 }
+
+/** 拆解素材的类型：按建书流程要用到的地方分开存，也按这个分组展示。 */
+export type BreakdownMaterialKind = 'character' | 'rhythm' | 'setting' | 'outline' | 'technique'
+
+export interface BreakdownMaterial {
+  kind: BreakdownMaterialKind
+  /** 条目标题：人物名、节奏维度、设定名、节点名 */
+  label: string
+  /** 正文，可直接阅读与粘走 */
+  text: string
+  /** 来源章节序号，0 表示来自全书报告 */
+  chapterSortNo: number
+  chapterTitle: string
+}
+
+export type BreakdownMaterials = Record<BreakdownMaterialKind, BreakdownMaterial[]>
+
+export const breakdownMaterialKinds: BreakdownMaterialKind[] = ['character', 'rhythm', 'setting', 'outline', 'technique']
+
+export const breakdownMaterialLabels: Record<BreakdownMaterialKind, string> = {
+  character: '人设',
+  rhythm: '节奏',
+  setting: '设定',
+  outline: '节点',
+  technique: '技巧',
+}
+
+/** 每个类型最多留多少条，避免大书把素材库和建书字段撑爆。 */
+export const BREAKDOWN_MATERIAL_LIMIT = 60
 
 export const BREAKDOWN_STORAGE_KEY = 'novel-workbench-next/breakdown-v1'
 export const BREAKDOWN_FILE_FORMAT = 'novel-workbench-next/breakdown-v1'
@@ -253,12 +284,13 @@ export function createBreakdownProject(parsed: ParsedTxtBook, author = ''): Brea
     chapters: items,
     report: null,
     characterNames: [],
+    materials: { character: [], rhythm: [], setting: [], outline: [], technique: [] },
   }
   recalcBreakdownProject(project)
   return project
 }
 
-/** 按章节清单重算状态/进度/统计，所有写路径共用同一口径。 */
+/** 按章节清单重算状态/进度/统计/分类素材，所有写路径共用同一口径。 */
 export function recalcBreakdownProject(project: BreakdownProject): BreakdownProject {
   const chapters = project.chapters
   const done = chapters.filter(item => item.status === 'done').length
@@ -270,7 +302,80 @@ export function recalcBreakdownProject(project: BreakdownProject): BreakdownProj
   project.status = processing > 0 ? 'processing' : chapters.length > 0 && done === chapters.length ? 'done' : failed > 0 ? 'failed' : 'wait'
   project.characterCount = project.characterNames.length
   project.updateTime = nowIso()
+  project.materials = collectBreakdownMaterials(project)
   return project
+}
+
+/**
+ * 把已拆章节与全书报告按类型聚合成分开的素材库：
+ * 人设取人物关系与人物弧线，节奏取爽点节奏，设定取世界观设定，
+ * 节点取关键节点与大纲反推，技巧取可复用技巧与编辑手记。
+ */
+export function collectBreakdownMaterials(project: BreakdownProject): BreakdownMaterials {
+  const materials: BreakdownMaterials = { character: [], rhythm: [], setting: [], outline: [], technique: [] }
+  const push = (kind: BreakdownMaterialKind, label: string, text: string, chapterSortNo: number, chapterTitle: string) => {
+    const cleanLabel = asText(label)
+    const cleanText = asText(text)
+    if (!cleanText) return
+    const bucket = materials[kind]
+    if (bucket.length >= BREAKDOWN_MATERIAL_LIMIT) return
+    bucket.push({ kind, label: cleanLabel, text: cleanText, chapterSortNo, chapterTitle })
+  }
+  const doneChapters = project.chapters
+    .filter(item => item.status === 'done' && item.analysis)
+    .sort((a, b) => a.sortNo - b.sortNo)
+  for (const chapter of doneChapters) {
+    const analysis = chapter.analysis as BreakdownAnalysis
+    for (const item of analysis.relations) {
+      push('character', `${item.from} → ${item.to}${item.relation ? `（${item.relation}）` : ''}`, item.desc, chapter.sortNo, chapter.title)
+    }
+    for (const item of analysis.rhythm) {
+      push('rhythm', `${item.label}${item.value ? `（${item.value}）` : ''}`, item.desc, chapter.sortNo, chapter.title)
+    }
+    for (const item of analysis.setting) {
+      const tags = item.tags.length ? `【${item.tags.join('、')}】` : ''
+      push('setting', `${item.name}${item.type ? `·${item.type}` : ''}`, `${item.desc}${tags}`, chapter.sortNo, chapter.title)
+    }
+    for (const node of analysis.outline) {
+      const tags = node.tags.length ? `【${node.tags.map(tag => tag.text).join('、')}】` : ''
+      push('outline', `${node.title}（${node.range}）`, `${node.text}${tags}`, chapter.sortNo, chapter.title)
+    }
+  }
+  const report = project.report
+  if (report) {
+    for (const arc of report.characterArcs) {
+      const chapters = arc.keyChapters.length ? `（第${arc.keyChapters.join('、')}章）` : ''
+      push('character', `${arc.name}${chapters}`, arc.arc, 0, '全书报告')
+    }
+    for (const stage of report.outlineRecovery) {
+      push('outline', `${stage.stage}（${stage.chapters}）`, `目标：${stage.goal}${stage.payoff ? `；兑现：${stage.payoff}` : ''}`, 0, '全书报告')
+    }
+    for (const item of report.reusableTechniques) push('technique', '可复用技巧', item, 0, '全书报告')
+    if (report.editorNotes) push('technique', '编辑手记', report.editorNotes, 0, '全书报告')
+  }
+  return materials
+}
+
+/** 素材总量，用于判断这本书有没有可带入的东西。 */
+export function countBreakdownMaterials(materials: BreakdownMaterials | undefined): number {
+  if (!materials) return 0
+  return breakdownMaterialKinds.reduce((sum, kind) => sum + materials[kind].length, 0)
+}
+
+/** 把选中类型的素材排成可直接粘进建书字段的文本，每条带上出处便于回查原书。 */
+export function formatBreakdownMaterials(project: BreakdownProject, kinds: BreakdownMaterialKind[]): string {
+  const picked = breakdownMaterialKinds.filter(kind => kinds.includes(kind) && project.materials[kind].length)
+  if (!picked.length) return ''
+  const author = project.author ? `（作者：${project.author}）` : ''
+  const lines = [`以下素材拆自《${project.title}》${author}，只作结构参考，不要照抄原文：`]
+  for (const kind of picked) {
+    lines.push('', `【${breakdownMaterialLabels[kind]}】`)
+    for (const item of project.materials[kind]) {
+      const from = item.chapterSortNo ? `第${item.chapterSortNo}章` : '全书报告'
+      lines.push(`- ${item.label ? `${item.label}：` : ''}${item.text}（${from}）`)
+    }
+  }
+  return lines.join('\n')
 }
 
 export function retryableBreakdownChapters(project: BreakdownProject): BreakdownChapter[] {
@@ -540,7 +645,8 @@ export function normalizeReport(value: unknown): BreakdownReport | null {
   return report.editorNotes || report.outlineRecovery.length || report.reusableTechniques.length ? report : null
 }
 
-function normalizeProject(value: unknown): BreakdownProject | null {
+/** 归一化单个项目：字段不合法就返回 null，旧存档缺的字段在这里补齐。 */
+export function normalizeProject(value: unknown): BreakdownProject | null {
   if (!value || typeof value !== 'object') return null
   const source = value as Partial<BreakdownProject>
   if (typeof source.id !== 'string' || !Array.isArray(source.chapters)) return null
@@ -565,7 +671,9 @@ function normalizeProject(value: unknown): BreakdownProject | null {
     characterNames: Array.isArray(source.characterNames)
       ? Array.from(new Set(source.characterNames.filter((name): name is string => typeof name === 'string' && !!name.trim()).map(name => name.trim())))
       : [],
+    materials: { character: [], rhythm: [], setting: [], outline: [], technique: [] },
   }
+  // 素材一律由当前章节与报告重新聚合，旧存档缺这个字段也能补上
   recalcBreakdownProject(project)
   return project
 }
@@ -638,6 +746,18 @@ export function buildBreakdownMarkdown(project: BreakdownProject): string {
     `- 已拆解：${project.chapters.filter(item => item.status === 'done').length} 章`,
     '',
   ]
+  const filledKinds = breakdownMaterialKinds.filter(kind => project.materials[kind].length)
+  if (filledKinds.length) {
+    lines.push('## 分类素材', '', '> 按类型汇总，可直接取用进建书流程。', '')
+    for (const kind of filledKinds) {
+      lines.push(`### ${breakdownMaterialLabels[kind]}`, '')
+      for (const item of project.materials[kind]) {
+        const from = item.chapterSortNo ? `第${item.chapterSortNo}章` : '全书报告'
+        lines.push(`- ${item.label ? `${item.label}：` : ''}${item.text}（${from}）`)
+      }
+      lines.push('')
+    }
+  }
   const report = project.report
   if (report) {
     lines.push('## 全书汇总')

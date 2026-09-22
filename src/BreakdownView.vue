@@ -54,6 +54,10 @@
         </div>
         <p class="bd-work-meta">{{ activeProject.chapterCount }} 章 · {{ activeProject.wordCount.toLocaleString() }} 字 · 已拆 {{ doneCount(activeProject) }} 章{{ activeProject.characterCount ? ` · ${activeProject.characterCount} 位角色` : '' }}</p>
         <div class="bd-work-actions">
+          <div class="bd-work-views" role="group" aria-label="工作台视图">
+            <button type="button" :class="{ active: workView === 'chapters' }" @click="workView = 'chapters'">按章拆解</button>
+            <button type="button" :class="{ active: workView === 'materials' }" @click="workView = 'materials'">分类素材 {{ materialTotal }}</button>
+          </div>
           <label class="bd-batch">每批<select v-model.number="batchCount" :disabled="running"><option :value="1">1 章</option><option :value="3">3 章</option><option :value="5">5 章</option><option :value="10">10 章</option></select></label>
           <button class="primary" type="button" :disabled="running || !retryable.length" @click="runBatch(retryable.slice(0, batchCount))">
             {{ running ? `拆解中 ${activeProject.progress}%` : `拆解 ${Math.min(batchCount, retryable.length)} 章` }}
@@ -66,7 +70,35 @@
         <div class="bd-work-progress" role="progressbar" :aria-valuenow="activeProject.progress" aria-valuemin="0" aria-valuemax="100"><i :style="{ width: activeProject.progress + '%' }"></i></div>
       </header>
 
-      <div class="bd-work-grid">
+      <!-- 分类素材 -->
+      <div v-if="workView === 'materials'" class="bd-materials">
+        <header class="bd-materials-head">
+          <div><small>MATERIAL LIBRARY</small><h2>分类素材 <span>{{ materialTotal }}</span></h2></div>
+          <div class="bd-materials-head-actions">
+            <button class="secondary" type="button" :disabled="!materialTotal" @click="copyMaterials(breakdownMaterialKinds)">复制全部</button>
+            <button class="secondary" type="button" @click="exportMarkdown(activeProject)">导出 Markdown</button>
+          </div>
+        </header>
+        <p class="bd-materials-note">素材按类型分开存放，随拆书存档和全量备份一起保存。到「建书」流程里，可以按类型带进对应的字段。</p>
+        <p v-if="copyNotice" class="bd-materials-note bd-copy-notice" role="status">{{ copyNotice }}</p>
+        <p v-if="!materialTotal" class="bd-empty"><span>◇</span>还没有可用的素材。先拆解几章，或生成全书报告。</p>
+        <section v-for="kind in breakdownMaterialKinds" :key="kind" class="bd-material-group">
+          <header>
+            <h3>{{ breakdownMaterialLabels[kind] }}<span>{{ activeMaterials[kind].length }}</span></h3>
+            <button class="secondary" type="button" :disabled="!activeMaterials[kind].length" @click="copyMaterials([kind])">复制本类</button>
+          </header>
+          <p v-if="!activeMaterials[kind].length" class="bd-material-empty">这一类还没有素材。</p>
+          <ul v-else>
+            <li v-for="(item, index) in activeMaterials[kind]" :key="`${kind}-${index}`">
+              <strong v-if="item.label">{{ item.label }}</strong>
+              <span>{{ item.text }}</span>
+              <small :title="item.chapterTitle">{{ item.chapterSortNo ? `第${item.chapterSortNo}章` : '全书报告' }}</small>
+            </li>
+          </ul>
+        </section>
+      </div>
+
+      <div v-else class="bd-work-grid">
         <nav class="bd-chapters" aria-label="章节列表">
           <button
             v-for="chapter in activeProject.chapters"
@@ -192,12 +224,16 @@ import {
   BREAKDOWN_PROMPT_PARAGRAPH_LIMIT,
   GOLDEN_CHAPTER_LIMIT,
   bookReportPrompt,
+  breakdownMaterialKinds,
+  breakdownMaterialLabels,
   breakdownStatusLabel,
   buildBreakdownMarkdown,
   chapterBreakdownPrompt,
+  countBreakdownMaterials,
   createBreakdownProject,
   exportBreakdownStore,
   extractJsonObject,
+  formatBreakdownMaterials,
   importBreakdownStore,
   loadBreakdownStore,
   mergeCharacterNames,
@@ -208,6 +244,8 @@ import {
   retryableBreakdownChapters,
   saveBreakdownStore,
   type BreakdownChapter,
+  type BreakdownMaterialKind,
+  type BreakdownMaterials,
   type BreakdownProject,
 } from './breakdown'
 
@@ -232,6 +270,11 @@ const activeChapter = computed<BreakdownChapter | null>(() => {
 })
 const retryable = computed(() => (activeProject.value ? retryableBreakdownChapters(activeProject.value) : []))
 const activeInsightId = ref<number | null>(null)
+
+/** 工作台两种看法：按章读拆解结果，或按类型看汇总出来的素材。 */
+const workView = ref<'chapters' | 'materials'>('chapters')
+const activeMaterials = computed<BreakdownMaterials>(() => activeProject.value?.materials ?? { character: [], rhythm: [], setting: [], outline: [], technique: [] })
+const materialTotal = computed(() => countBreakdownMaterials(activeMaterials.value))
 
 const dragging = ref(false)
 const listError = ref('')
@@ -267,6 +310,30 @@ const download = (payload: string, filename: string, type: string) => {
 }
 
 const safeName = (title: string) => title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 40) || '拆书'
+
+const copyNotice = ref('')
+
+/** 复制某一类或全部素材：浏览器不给剪贴板权限时退回选中复制。 */
+async function copyMaterials(kinds: BreakdownMaterialKind[]) {
+  const project = activeProject.value
+  if (!project) return
+  const text = formatBreakdownMaterials(project, kinds)
+  if (!text) { copyNotice.value = '这一类还没有素材可复制。'; return }
+  try {
+    await navigator.clipboard.writeText(text)
+    copyNotice.value = `已复制 ${kinds.map(kind => breakdownMaterialLabels[kind]).join('、')}素材`
+  } catch {
+    const area = document.createElement('textarea')
+    area.value = text
+    area.style.position = 'fixed'
+    area.style.opacity = '0'
+    document.body.appendChild(area)
+    area.select()
+    const okCopy = document.execCommand('copy')
+    document.body.removeChild(area)
+    copyNotice.value = okCopy ? `已复制 ${kinds.map(kind => breakdownMaterialLabels[kind]).join('、')}素材` : '复制失败，请手动选中文本复制'
+  }
+}
 
 // ---------------------------------------------------------------------------
 // 项目列表
@@ -340,6 +407,7 @@ function openProject(id: string) {
   activeInsightId.value = null
   workError.value = ''
   showReport.value = false
+  workView.value = 'chapters'
 }
 
 function closeProject() {
@@ -540,6 +608,30 @@ async function generateReport() {
 .bd-node-tags em.hot { background: #fdeaec; color: #b3283d; }
 .bd-tag { margin-left: 5px; padding: 1px 7px; border-radius: 99px; background: #f1ecf0; color: #7d7283; font-size: 10px; }
 
+/* 分类素材 */
+.bd-work-views { display: inline-flex; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.bd-work-views button { padding: 6px 12px; border: 0; border-radius: 8px; background: transparent; color: #806778; font-size: 12px; }
+.bd-work-views button.active { background: #fbe9ee; color: #bd496e; font-weight: 700; }
+.bd-materials { margin-top: 16px; }
+.bd-materials-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 10px; }
+.bd-materials-head small { color: var(--accent); letter-spacing: 3px; font-size: 11px; }
+.bd-materials-head h2 { margin: 4px 0 0; font-size: 20px; }
+.bd-materials-head h2 span { display: inline-grid; place-items: center; min-width: 24px; height: 24px; margin-left: 6px; border-radius: 50%; color: #bd5371; background: #f9dfe9; font: 700 11px system-ui, sans-serif; vertical-align: middle; }
+.bd-materials-head-actions { display: flex; gap: 8px; }
+.bd-materials-note { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.8; }
+.bd-copy-notice { color: #3f8a55; }
+.bd-material-group { margin-top: 14px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); }
+.bd-material-group > header { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.bd-material-group h3 { margin: 0; font-size: 14px; }
+.bd-material-group h3 span { display: inline-grid; place-items: center; min-width: 22px; height: 22px; margin-left: 6px; border-radius: 99px; color: #6c3554; background: #f1e7ee; font: 700 11px system-ui, sans-serif; vertical-align: middle; }
+.bd-material-empty { margin: 8px 0 0; color: #b3a8b5; font-size: 12px; }
+.bd-material-group ul { margin: 10px 0 0; padding: 0; list-style: none; }
+.bd-material-group li { display: grid; grid-template-columns: minmax(120px, 220px) minmax(0, 1fr) auto; gap: 10px; padding: 9px 0; border-top: 1px dashed var(--line); font-size: 12px; line-height: 1.8; }
+.bd-material-group li:first-child { border-top: 0; }
+.bd-material-group li strong { color: #6c3554; font-weight: 600; }
+.bd-material-group li span { color: #4c4351; }
+.bd-material-group li small { color: #b3a8b5; font-size: 10px; white-space: nowrap; }
+
 /* 全书报告 */
 .bd-report { width: min(760px, 94vw); max-height: 86vh; overflow-y: auto; }
 .bd-report-body section { margin-bottom: 18px; }
@@ -552,6 +644,10 @@ async function generateReport() {
 @media (max-width: 1080px) {
   .bd-work-grid { grid-template-columns: 200px minmax(0, 1fr); }
   .bd-insight { grid-column: 1 / -1; max-height: none; }
+}
+@media (max-width: 760px) {
+  .bd-material-group li { grid-template-columns: 1fr; gap: 2px; }
+  .bd-material-group li small { justify-self: start; }
 }
 @media (max-width: 760px) {
   .bd-page { padding: 16px 14px 30px; }

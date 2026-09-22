@@ -31,16 +31,16 @@
           <div v-if="workflow.step === 1" class="workflow-fields">
             <div class="workflow-field-row"><label>作品类型<input v-model="workflow.genre" placeholder="例如：都市悬疑、玄幻冒险" /></label><label>目标读者<input v-model="workflow.audience" placeholder="例如：喜欢快节奏悬疑的读者" /></label><label>叙事风格<input v-model="workflow.tone" placeholder="例如：克制、诡谲、带少量幽默" /></label></div>
             <div class="workflow-field-head"><label for="workflow-seed">原始灵感</label><button class="secondary" @click="openNotePicker">从灵感库选择</button></div><textarea id="workflow-seed" v-model="workflow.seed" placeholder="哪怕只有一句话：主角遇到了什么异常？他非解决不可的事是什么？" />
-            <div class="workflow-field-head"><label for="workflow-idea">可用创意</label><button class="secondary" :disabled="workflowBusy" @click="generateWorkflow('idea')">✦ AI 完善创意</button></div><textarea id="workflow-idea" v-model="workflow.idea" placeholder="把创意改成你愿意写下去的版本。AI 生成内容需要先预览和采纳。" />
+            <div class="workflow-field-head"><label for="workflow-idea">可用创意</label><span class="workflow-field-tools"><button class="secondary" @click="openBreakdownPicker('idea')">从拆书带入</button><button class="secondary" :disabled="workflowBusy" @click="generateWorkflow('idea')">✦ AI 完善创意</button></span></div><textarea id="workflow-idea" v-model="workflow.idea" placeholder="把创意改成你愿意写下去的版本。AI 生成内容需要先预览和采纳。" />
           </div>
           <div v-else-if="workflow.step === 2" class="workflow-fields">
             <div class="workflow-field-head"><label for="workflow-title">作品名称</label><button class="secondary" :disabled="workflowBusy" @click="generateWorkflow('title')">✦ AI 取书名</button></div><input id="workflow-title" v-model="workflow.title" maxlength="60" placeholder="先起一个工作书名，随时可以改" />
-            <div class="workflow-field-head"><label for="workflow-outline">故事主线与章节规划</label><button class="secondary" :disabled="workflowBusy" @click="generateWorkflow('outline')">✦ AI 生成大纲</button></div><textarea id="workflow-outline" v-model="workflow.outline" class="workflow-long" placeholder="先写故事主线，再逐行写：第1章｜标题｜具体事件与章节钩子。建书时会识别最多 20 个章节。" />
+            <div class="workflow-field-head"><label for="workflow-outline">故事主线与章节规划</label><span class="workflow-field-tools"><button class="secondary" @click="openBreakdownPicker('outline')">从拆书带入</button><button class="secondary" :disabled="workflowBusy" @click="generateWorkflow('outline')">✦ AI 生成大纲</button></span></div><textarea id="workflow-outline" v-model="workflow.outline" class="workflow-long" placeholder="先写故事主线，再逐行写：第1章｜标题｜具体事件与章节钩子。建书时会识别最多 20 个章节。" />
             <p class="workflow-help">已识别 {{ workflowChapters.length }} 个章节；章节摘要会跟随正文保存，并提供给 AI 写正文时参考。</p>
           </div>
           <div v-else-if="workflow.step === 3" class="workflow-fields">
-            <div class="workflow-field-head"><label for="workflow-world">世界观与规则</label><button class="secondary" :disabled="workflowBusy" @click="generateWorkflow('world')">✦ AI 补全世界观</button></div><textarea id="workflow-world" v-model="workflow.world" placeholder="规则、限制、代价与对故事的影响" />
-            <div class="workflow-field-head"><label for="workflow-characters">主要人物</label><button class="secondary" :disabled="workflowBusy" @click="generateWorkflow('characters')">✦ AI 塑造人物</button></div><textarea id="workflow-characters" v-model="workflow.characters" placeholder="人物目标、弱点、秘密、关系与变化" />
+            <div class="workflow-field-head"><label for="workflow-world">世界观与规则</label><span class="workflow-field-tools"><button class="secondary" @click="openBreakdownPicker('world')">从拆书带入</button><button class="secondary" :disabled="workflowBusy" @click="generateWorkflow('world')">✦ AI 补全世界观</button></span></div><textarea id="workflow-world" v-model="workflow.world" placeholder="规则、限制、代价与对故事的影响" />
+            <div class="workflow-field-head"><label for="workflow-characters">主要人物</label><span class="workflow-field-tools"><button class="secondary" @click="openBreakdownPicker('characters')">从拆书带入</button><button class="secondary" :disabled="workflowBusy" @click="generateWorkflow('characters')">✦ AI 塑造人物</button></span></div><textarea id="workflow-characters" v-model="workflow.characters" placeholder="人物目标、弱点、秘密、关系与变化" />
             <div class="workflow-field-head"><label for="workflow-timeline">故事时间线</label><button class="secondary" :disabled="workflowBusy" @click="generateWorkflow('timeline')">✦ AI 整理时间线</button></div><textarea id="workflow-timeline" v-model="workflow.timeline" placeholder="第一天｜事件｜后果；逐行记录重要节点" />
           </div>
           <div v-else class="workflow-review">
@@ -434,6 +434,27 @@
       </section>
     </div>
 
+    <div v-if="showBreakdownPicker" class="overlay" @click.self="showBreakdownPicker = false">
+      <section class="modal preview-modal" role="dialog" aria-modal="true" aria-label="从拆书带入素材">
+        <div class="modal-head"><div><small>BREAKDOWN</small><h2>从拆书带入 · {{ breakdownPickerFieldLabels[breakdownPickerField] }}</h2></div><button class="icon-button" aria-label="关闭" @click="showBreakdownPicker = false">×</button></div>
+        <p class="modal-note">拆书库里按类型分开存放的素材。勾选要带进的类型，内容会追加到当前字段，之后仍可自由修改。</p>
+        <p v-if="breakdownPickerNotice" class="workflow-history-notice" role="status">{{ breakdownPickerNotice }}</p>
+        <div class="bd-picker-list">
+          <article v-for="project in breakdownPickerProjects" :key="project.id" class="bd-picker-card">
+            <header><h3>{{ project.title }}</h3><span>已拆 {{ project.chapters.filter(item => item.status === 'done').length }} 章 · 素材 {{ countBreakdownMaterials(project.materials) }} 条</span></header>
+            <div class="bd-picker-kinds" role="group" :aria-label="`${project.title} 的素材类型`">
+              <label v-for="kind in breakdownMaterialKinds" :key="kind" :class="{ disabled: !project.materials[kind].length }">
+                <input type="checkbox" :checked="(breakdownPickerKinds[project.id] || []).includes(kind)" :disabled="!project.materials[kind].length" @change="toggleBreakdownKind(project.id, kind)" />
+                {{ breakdownMaterialLabels[kind] }}<small>{{ project.materials[kind].length }}</small>
+              </label>
+            </div>
+            <button class="primary" type="button" @click="applyBreakdownMaterials(project.id)">带进{{ breakdownPickerFieldLabels[breakdownPickerField] }}</button>
+          </article>
+          <p v-if="!breakdownPickerProjects.length" class="muted">拆书库还是空的。先去「竞品拆书」页导入一本书，拆出素材后就能在这里按类型取用。</p>
+        </div>
+      </section>
+    </div>
+
     <div v-if="preview" class="overlay" @click.self="preview = null"><section class="modal preview-modal" role="dialog" aria-modal="true" aria-label="预览 AI 内容"><div class="modal-head"><div><small>先审阅，再落稿</small><h2>预览并采纳</h2></div><button class="icon-button" aria-label="关闭" @click="preview = null">×</button></div><p class="modal-note">你可以先修改生成内容。只有点击采纳，内容才会进入作品。</p><label v-if="preview.mode !== 'prose'">设定标题<input v-model="preview.title" placeholder="给这条设定起名" /></label><label v-else>写入位置<select v-model="preview.insert"><option value="append">追加到本章末尾</option><option value="replace">替换本章正文</option></select></label><textarea v-model="preview.content" class="preview-textarea" aria-label="生成内容" /><div class="modal-actions"><button class="secondary" @click="preview = null">暂不采纳</button><button class="primary" :disabled="!preview.content.trim()" @click="adoptPreview">采纳到作品</button></div></section></div>
   </div>
 </template>
@@ -446,7 +467,7 @@ import { designFixture } from './design-fixture'
 import TextDiff from './TextDiff.vue'
 import BreakdownView from './BreakdownView.vue'
 import RankView from './RankView.vue'
-import { emptyStore as emptyBreakdownStore, loadBreakdownStore, saveBreakdownStore } from './breakdown'
+import { breakdownMaterialKinds, breakdownMaterialLabels, countBreakdownMaterials, emptyStore as emptyBreakdownStore, formatBreakdownMaterials, loadBreakdownStore, saveBreakdownStore, type BreakdownMaterialKind, type BreakdownStore } from './breakdown'
 import { emptyRankStore, loadRankStore, saveRankStore } from './rank'
 import { FONT_SIZE_RANGE, loadEditorPrefs, saveEditorPrefs } from './prefs'
 import { createBook, importBookJson, loadData, now, recordChapterVersion, saveData, uid, type Book, type ChatEntry, type Chapter, type ChapterVersion, type InspirationNote, type LoreMode, type Mode } from './storage'
@@ -480,6 +501,64 @@ const workflowHistoryFilter = ref<'all' | 'draft' | 'completed'>('all')
 const workflowHistoryFilters = [{ id: 'all', label: '全部' }, { id: 'draft', label: '未完成' }, { id: 'completed', label: '已建书' }] as const
 const workflowHistoryError = ref('')
 const workflowHistoryNotice = ref('')
+
+// ---------------------------------------------------------------------------
+// 拆书素材带入：建书各字段按类型取用拆书库里分开存放的素材
+// ---------------------------------------------------------------------------
+
+/** 设计预览不读用户拆书库，避免示例页串进真实数据 */
+const breakdownStore = ref<BreakdownStore>(designPreview ? emptyBreakdownStore() : loadBreakdownStore())
+
+type BreakdownPickerField = 'idea' | 'outline' | 'world' | 'characters'
+const breakdownPickerFieldLabels: Record<BreakdownPickerField, string> = {
+  idea: '可用创意',
+  outline: '故事主线与章节规划',
+  world: '世界观与规则',
+  characters: '主要人物',
+}
+/** 每个字段默认带哪几类素材：节点和节奏管大纲，设定和人物管世界，技巧管创意 */
+const breakdownPickerDefaults: Record<BreakdownPickerField, BreakdownMaterialKind[]> = {
+  idea: ['technique'],
+  outline: ['outline', 'rhythm'],
+  world: ['setting'],
+  characters: ['character'],
+}
+const showBreakdownPicker = ref(false)
+const breakdownPickerField = ref<BreakdownPickerField>('idea')
+const breakdownPickerKinds = ref<Record<string, BreakdownMaterialKind[]>>({})
+const breakdownPickerNotice = ref('')
+const breakdownPickerProjects = computed(() => breakdownStore.value.projects.filter(item => countBreakdownMaterials(item.materials) > 0))
+
+function openBreakdownPicker(field: BreakdownPickerField) {
+  // 拆书库由拆书页自己写盘，打开选取器时重读一次，保证刚拆出来的素材就在眼前
+  if (!designPreview) breakdownStore.value = loadBreakdownStore()
+  breakdownPickerField.value = field
+  breakdownPickerKinds.value = Object.fromEntries(breakdownPickerProjects.value.map(item => [item.id, [...breakdownPickerDefaults[field]]]))
+  breakdownPickerNotice.value = ''
+  showBreakdownPicker.value = true
+}
+
+function toggleBreakdownKind(projectId: string, kind: BreakdownMaterialKind) {
+  const current = breakdownPickerKinds.value[projectId] || []
+  breakdownPickerKinds.value = {
+    ...breakdownPickerKinds.value,
+    [projectId]: current.includes(kind) ? current.filter(item => item !== kind) : [...current, kind],
+  }
+}
+
+function applyBreakdownMaterials(projectId: string) {
+  const project = breakdownStore.value.projects.find(item => item.id === projectId)
+  if (!project) return
+  const kinds = (breakdownPickerKinds.value[projectId] || []).filter(kind => project.materials[kind].length)
+  if (!kinds.length) { breakdownPickerNotice.value = '先勾选至少一类有素材的类型。'; return }
+  const text = formatBreakdownMaterials(project, kinds)
+  const field = breakdownPickerField.value
+  const current = workflow.value[field].trim()
+  workflow.value = { ...workflow.value, [field]: current ? `${current}\n\n${text}` : text }
+  breakdownPickerNotice.value = `已把《${project.title}》的${kinds.map(kind => breakdownMaterialLabels[kind]).join('、')}素材带进${breakdownPickerFieldLabels[field]}。`
+  showBreakdownPicker.value = false
+}
+
 const workflowRecords = computed(() => [...workflowArchive.value.records].filter(item => workflowHistoryFilter.value === 'all' || item.status === workflowHistoryFilter.value).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)))
 const workflowRecordCount = computed(() => workflowArchive.value.records.length)
 const workflowRecordTitle = (record: WorkflowRecord) => record.draft.title.trim() || record.draft.idea.trim().slice(0, 24) || record.draft.seed.trim().slice(0, 24) || '未命名草稿'

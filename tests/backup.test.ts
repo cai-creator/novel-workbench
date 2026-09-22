@@ -108,6 +108,7 @@ const breakdownProject = (id: string, title: string, updateTime: string): Breakd
   chapters: [{ id: `${id}-c1`, title: '第一章', status: 'done', wordCount: 10, sortNo: 1, paragraphs: ['第一段。'], analysis: null, insightIds: [null] }],
   report: null,
   characterNames: [],
+  materials: { character: [], rhythm: [], setting: [], outline: [], technique: [] },
 })
 
 test('全量备份带上扫榜快照与拆书库，并能原样解析回来', () => {

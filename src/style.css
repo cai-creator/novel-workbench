@@ -623,6 +623,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .workflow-field-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 24px 0 3px; }
 .workflow-field-head:first-child { margin-top: 0; }
 .workflow-field-head button { font-size: 11px; }
+.workflow-field-tools { display: flex; flex-wrap: wrap; gap: 8px; }
+.workflow-field-tools button { font-size: 11px; }
 .workflow-help { margin: 9px 0; color: #a28b9b; font-size: 11px; line-height: 1.7; }
 .workflow-error { padding: 10px 13px; border: 1px solid #f0b4bf; border-radius: 8px; color: #ac3857; background: #fff0f2; font-size: 12px; line-height: 1.6; }
 .workflow-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 20px; border-top: 1px solid #f0e5eb; }
@@ -841,6 +843,18 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .note-picker-item { display: grid; gap: 4px; padding: 11px 13px; border: 1px solid #eadde7; border-radius: 10px; color: #4c3f4b; background: #fff; font-size: 12px; line-height: 1.7; text-align: left; }
 .note-picker-item:hover { border-color: #e993aa; background: #fff5f8; }
 .note-picker-item small { color: #9b8aa0; font-size: 10px; }
+
+/* 建书流程：从拆书带入素材 */
+.bd-picker-list { display: grid; gap: 10px; max-height: 52vh; overflow-y: auto; margin-top: 12px; }
+.bd-picker-card { display: grid; gap: 9px; padding: 13px 15px; border: 1px solid #eadde7; border-radius: 11px; background: #fff; }
+.bd-picker-card > header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px; }
+.bd-picker-card h3 { margin: 0; font-size: 14px; }
+.bd-picker-card > header span { color: #9b8aa0; font-size: 11px; }
+.bd-picker-kinds { display: flex; flex-wrap: wrap; gap: 7px; }
+.bd-picker-kinds label { display: inline-flex; align-items: center; gap: 5px; padding: 6px 10px; border: 1px solid #e8d9e4; border-radius: 99px; color: #65495e; background: #fff; font-size: 11px; cursor: pointer; }
+.bd-picker-kinds label.disabled { color: #bcaab8; background: #faf6f8; cursor: not-allowed; }
+.bd-picker-kinds small { color: #b3a1b0; font-size: 10px; }
+.bd-picker-card > button { justify-self: start; }
 
 /* 写作统计页 */
 .stats-page { flex: 1; min-height: 0; overflow-y: auto; background: radial-gradient(circle at 82% 0, #dcebf7, transparent 30%), #f5f2f5; }

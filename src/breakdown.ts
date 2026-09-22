@@ -113,7 +113,7 @@ export const BREAKDOWN_MAX_PROJECTS = 30
 export const BREAKDOWN_MAX_CHAPTERS = 200
 export const BREAKDOWN_MAX_PARAGRAPHS = 2000
 
-const emptyStore = (): BreakdownStore => ({ version: 1, projects: [] })
+export const emptyStore = (): BreakdownStore => ({ version: 1, projects: [] })
 const asText = (value: unknown) => String(value ?? '').trim()
 const nowIso = () => new Date().toISOString()
 const newId = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `bd-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`)
@@ -603,6 +603,26 @@ export function importBreakdownStore(value: unknown): BreakdownProject[] {
   }
   if (!imported.length) throw new Error('文件里没有可导入的拆书项目')
   return imported
+}
+
+/** 备份合并：同 ID 保留较新更新的一份，不重分配 ID，避免同一份备份重复导入越攒越多 */
+export function mergeBreakdownProjects(current: BreakdownProject[], incoming: BreakdownProject[]): BreakdownProject[] {
+  const byId = new Map<string, BreakdownProject>()
+  for (const project of [...current, ...incoming]) {
+    const prev = byId.get(project.id)
+    if (!prev || project.updateTime > prev.updateTime) byId.set(project.id, project)
+  }
+  return [...byId.values()].slice(0, BREAKDOWN_MAX_PROJECTS)
+}
+
+/** 从全量备份里取拆书项目：整体结构不对就当没有，单个坏了只跳过那个 */
+export function breakdownProjectsFromBackup(value: unknown): BreakdownProject[] {
+  if (!value || typeof value !== 'object') return []
+  const projects = (value as { projects?: unknown }).projects
+  if (!Array.isArray(projects)) return []
+  return projects
+    .map(item => normalizeProject(item))
+    .filter((item): item is BreakdownProject => item !== null)
 }
 
 // ---------------------------------------------------------------------------

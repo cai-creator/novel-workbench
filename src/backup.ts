@@ -2,6 +2,8 @@ import type { Book, Chapter, ProjectData } from './storage'
 import { normalizeProjectData } from './storage'
 import { pruneStats, type DayStats, type StatsState } from './stats'
 import type { WorkflowArchive, WorkflowRecord } from './workflow'
+import { mergeRankSnapshots, rankSnapshotsFromBackup, type RankSnapshotDoc } from './rank'
+import { breakdownProjectsFromBackup, mergeBreakdownProjects, type BreakdownProject } from './breakdown'
 
 export const BACKUP_FORMAT = 'novel-workbench-next/backup-v1'
 export const BACKUP_SIZE_LIMIT = 50 * 1024 * 1024
@@ -12,6 +14,10 @@ export interface WorkspaceBackup {
   counts: { books: number; chapters: number; notes: number; records: number }
   data: ProjectData
   workflow?: WorkflowArchive
+  /** 扫榜快照：天天攒出来的趋势数据，清浏览器前只能靠备份留住 */
+  rank?: { snapshots: RankSnapshotDoc[] }
+  /** 竞品拆书库：带章节正文与全部分析结果，单独占一份 */
+  breakdown?: { projects: BreakdownProject[] }
 }
 
 export interface RestoreSummary {
@@ -29,8 +35,21 @@ const backupCounts = (data: ProjectData, workflow?: WorkflowArchive) => ({
   records: workflow?.records.length ?? 0,
 })
 
-export function buildWorkspaceBackup(data: ProjectData, workflow: WorkflowArchive | undefined, exportedAt: string): WorkspaceBackup {
-  return { format: BACKUP_FORMAT, exportedAt, counts: backupCounts(data, workflow), data, workflow }
+export function buildWorkspaceBackup(
+  data: ProjectData,
+  workflow: WorkflowArchive | undefined,
+  exportedAt: string,
+  side?: { rank?: RankSnapshotDoc[]; breakdown?: BreakdownProject[] }
+): WorkspaceBackup {
+  return {
+    format: BACKUP_FORMAT,
+    exportedAt,
+    counts: backupCounts(data, workflow),
+    data,
+    workflow,
+    rank: side?.rank?.length ? { snapshots: side.rank } : undefined,
+    breakdown: side?.breakdown?.length ? { projects: side.breakdown } : undefined,
+  }
 }
 
 export function serializeWorkspaceBackup(backup: WorkspaceBackup): string {
@@ -71,7 +90,17 @@ export function parseWorkspaceBackup(value: unknown): WorkspaceBackup | null {
   const data = normalizeProjectData(candidate.data)
   if (!data) return null
   const workflow = normalizeBackupWorkflow(candidate.workflow)
-  return { format: BACKUP_FORMAT, exportedAt: candidate.exportedAt, counts: backupCounts(data, workflow), data, workflow }
+  const rank = rankSnapshotsFromBackup(candidate.rank)
+  const breakdown = breakdownProjectsFromBackup(candidate.breakdown)
+  return {
+    format: BACKUP_FORMAT,
+    exportedAt: candidate.exportedAt,
+    counts: backupCounts(data, workflow),
+    data,
+    workflow,
+    rank: rank.length ? { snapshots: rank } : undefined,
+    breakdown: breakdown.length ? { projects: breakdown } : undefined,
+  }
 }
 
 function findDay(days: DayStats[], date: string): DayStats | undefined {
@@ -127,6 +156,34 @@ export function mergeWorkflowRecords(current: WorkflowRecord[], incoming: Workfl
   const known = new Set(current.map(item => item.id))
   const added = incoming.filter(item => !known.has(item.id))
   return { records: [...current, ...added], added: added.length }
+}
+
+export interface SideStoreMerge {
+  rank: RankSnapshotDoc[]
+  breakdown: BreakdownProject[]
+  addedRank: number
+  addedBreakdown: number
+}
+
+/** 合并扫榜快照与拆书库：本地已有的不覆盖，只补备份里没有的日期和项目 */
+export function mergeSideStores(current: SideStoreInput, incoming: SideStoreInput): SideStoreMerge {
+  const currentRank = current.rank || []
+  const incomingRank = incoming.rank || []
+  const currentProjects = current.breakdown || []
+  const incomingProjects = incoming.breakdown || []
+  const knownRank = new Set(currentRank.map(item => `${item.sourceId}|${item.statDate}`))
+  const knownProjects = new Set(currentProjects.map(item => item.id))
+  return {
+    rank: mergeRankSnapshots(currentRank, incomingRank),
+    breakdown: mergeBreakdownProjects(currentProjects, incomingProjects),
+    addedRank: incomingRank.filter(item => !knownRank.has(`${item.sourceId}|${item.statDate}`)).length,
+    addedBreakdown: incomingProjects.filter(item => !knownProjects.has(item.id)).length,
+  }
+}
+
+interface SideStoreInput {
+  rank?: RankSnapshotDoc[]
+  breakdown?: BreakdownProject[]
 }
 
 const normalizeParagraphs = (text: string) => text.replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').trim()

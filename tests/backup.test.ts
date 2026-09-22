@@ -1,8 +1,10 @@
 import { equal, ok, test } from './harness'
-import { BACKUP_SIZE_LIMIT, bookToTxt, buildWorkspaceBackup, chapterToTxt, mergeWorkflowRecords, mergeWorkspaceBackup, parseWorkspaceBackup, safeFileName, serializeWorkspaceBackup } from '../src/backup'
+import { BACKUP_SIZE_LIMIT, bookToTxt, buildWorkspaceBackup, chapterToTxt, mergeSideStores, mergeWorkflowRecords, mergeWorkspaceBackup, parseWorkspaceBackup, safeFileName, serializeWorkspaceBackup } from '../src/backup'
 import { emptyStatsState, recordWords, type StatsState } from '../src/stats'
 import type { Book, Chapter, ProjectData } from '../src/storage'
 import type { WorkflowRecord } from '../src/workflow'
+import type { RankSnapshotDoc } from '../src/rank'
+import type { BreakdownProject } from '../src/breakdown'
 
 const chapter = (id: string, title: string, content: string): Chapter => ({ id, title, content, updatedAt: '2026-09-20T00:00:00.000Z' })
 const book = (id: string, title: string, chapters: Chapter[]): Book => ({ id, title, premise: '', chapters, lore: [], chat: [], updatedAt: '2026-09-20T00:00:00.000Z' })
@@ -58,6 +60,102 @@ test('建书记录按 ID 合并，同 ID 保留当前设备的一份', () => {
   const merged = mergeWorkflowRecords([record('r1', '本地草稿')], [record('r1', '备份草稿'), record('r2', '备份新草稿')])
   equal(merged.records.map(item => item.draft.title), ['本地草稿', '备份新草稿'])
   equal(merged.added, 1)
+})
+
+const rankSnapshot = (sourceId: number, statDate: string, fetchedAt: number): RankSnapshotDoc => ({
+  sourceId,
+  statDate,
+  fetchedAt,
+  pageTitle: null,
+  cutoffText: null,
+  origin: 'crawl',
+  items: [{
+    rankNo: 1,
+    rankChange: 0,
+    bookId: '7401',
+    bookTitle: `书${statDate}`,
+    bookUrl: 'https://fanqienovel.com/page/7401',
+    authorName: '作者甲',
+    coverUrl: null,
+    intro: null,
+    statusText: null,
+    metricName: '在读',
+    metricValue: 1000,
+    metricText: '在读 1000',
+    readingCount: 1000,
+    readingText: '在读 1000',
+    lastChapterTitle: null,
+    lastChapterUrl: null,
+    lastUpdateTimeText: null,
+    categoryName: null,
+    categorySubName: null,
+  }],
+})
+
+const breakdownProject = (id: string, title: string, updateTime: string): BreakdownProject => ({
+  id,
+  title,
+  author: '作者甲',
+  tags: [],
+  mood: '',
+  characterCount: 0,
+  wordCount: 0,
+  chapterCount: 0,
+  progress: 0,
+  status: 'done',
+  createTime: updateTime,
+  updateTime,
+  chapters: [{ id: `${id}-c1`, title: '第一章', status: 'done', wordCount: 10, sortNo: 1, paragraphs: ['第一段。'], analysis: null, insightIds: [null] }],
+  report: null,
+  characterNames: [],
+})
+
+test('全量备份带上扫榜快照与拆书库，并能原样解析回来', () => {
+  const data = project([book('b1', '夜行者档案', [chapter('c1', '第一章', '正文一')])])
+  const backup = buildWorkspaceBackup(data, undefined, '2026-09-22T10:00:00.000Z', {
+    rank: [rankSnapshot(1, '2026-09-22', 100)],
+    breakdown: [breakdownProject('p1', '竞品一', '2026-09-22T00:00:00.000Z')],
+  })
+  ok(backup.rank !== undefined, '有快照时才写 rank 段')
+  const parsed = parseWorkspaceBackup(JSON.parse(serializeWorkspaceBackup(backup)))
+  equal(parsed?.rank?.snapshots.length, 1)
+  equal(parsed?.rank?.snapshots[0].items[0].bookTitle, '书2026-09-22')
+  equal(parsed?.breakdown?.projects.map(item => item.title), ['竞品一'])
+})
+
+test('没有扫榜与拆书数据时备份不写这两个段，旧备份也能解析', () => {
+  const backup = buildWorkspaceBackup(project([]), undefined, '2026-09-22T10:00:00.000Z')
+  equal(backup.rank, undefined)
+  equal(backup.breakdown, undefined)
+  const legacy = { format: 'novel-workbench-next/backup-v1', exportedAt: '2026-09-22T10:00:00.000Z', counts: { books: 0, chapters: 0, notes: 0, records: 0 }, data: project([]) }
+  const parsed = parseWorkspaceBackup(legacy)
+  ok(parsed !== null, '旧版备份不带这两个段也要能恢复')
+  equal(parsed?.rank, undefined)
+  equal(parsed?.breakdown, undefined)
+})
+
+test('扫榜快照与拆书库合并时按日期和 ID 去重，同键保留较新的一份', () => {
+  const merged = mergeSideStores(
+    { rank: [rankSnapshot(1, '2026-09-21', 100), rankSnapshot(1, '2026-09-22', 200)], breakdown: [breakdownProject('p1', '本地竞品', '2026-09-21T00:00:00.000Z')] },
+    { rank: [rankSnapshot(1, '2026-09-22', 999), rankSnapshot(1, '2026-09-20', 50)], breakdown: [breakdownProject('p1', '备份竞品', '2026-09-20T00:00:00.000Z'), breakdownProject('p2', '备份新竞品', '2026-09-22T00:00:00.000Z')] }
+  )
+  const keys = merged.rank.map(item => `${item.sourceId}|${item.statDate}`)
+  equal(keys.length, 3, '同源同日只留一份')
+  const today = merged.rank.find(item => item.statDate === '2026-09-22')
+  equal(today?.fetchedAt, 999, '同键保留较新抓取的一份')
+  equal(merged.breakdown.map(item => item.title), ['本地竞品', '备份新竞品'], '同 ID 保留本地，只补没有的')
+  equal(merged.addedRank, 1, '只把 09-20 算作新增')
+  equal(merged.addedBreakdown, 1)
+})
+
+test('备份里结构错误的扫榜与拆书段被当成没有，不拖垮恢复', () => {
+  const merged = mergeSideStores({}, { rank: undefined, breakdown: undefined })
+  equal(merged.rank, [])
+  equal(merged.breakdown, [])
+  const parsed = parseWorkspaceBackup({ format: 'novel-workbench-next/backup-v1', exportedAt: '2026-09-22T10:00:00.000Z', data: project([]), rank: { snapshots: 'nope' }, breakdown: 7 })
+  ok(parsed !== null, '作品数据仍能恢复')
+  equal(parsed?.rank, undefined)
+  equal(parsed?.breakdown, undefined)
 })
 
 function emptyDraft() {

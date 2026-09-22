@@ -146,9 +146,9 @@
       </div>
     </main>
 
-    <main v-else-if="screen === 'breakdown'" class="breakdown-page"><BreakdownView :model="data.model" /></main>
+    <main v-else-if="screen === 'breakdown'" class="breakdown-page"><BreakdownView :model="data.model" :data-epoch="dataEpoch" /></main>
 
-    <main v-else-if="screen === 'rank'" class="rank-page"><RankView :model="data.model" /></main>
+    <main v-else-if="screen === 'rank'" class="rank-page"><RankView :model="data.model" :data-epoch="dataEpoch" /></main>
 
     <main v-else-if="screen === 'production' && book" class="production-page">
       <div class="production-shell">
@@ -352,7 +352,7 @@
       <section class="modal backup-modal" role="dialog" aria-modal="true" aria-label="备份与导出">
         <div class="modal-head"><div><small>本机数据</small><h2>备份与导出</h2></div><button class="icon-button" aria-label="关闭" @click="showBackup = false">×</button></div>
         <h3 class="backup-title">全量备份</h3>
-        <p class="modal-note">备份包含全部作品、章节、设定、灵感、建书记录和写作统计，可在更换设备或清理浏览器后完整恢复。备份文件里也会写入当前模型密钥，请只保存在自己信任的地方。</p>
+        <p class="modal-note">备份包含全部作品、章节、设定、灵感、建书记录、写作统计，以及扫榜快照和竞品拆书库，可在更换设备或清理浏览器后完整恢复。备份文件里也会写入当前模型密钥，请只保存在自己信任的地方。</p>
         <p class="backup-summary">当前共有 <strong>{{ data.books.length }}</strong> 部作品 · <strong>{{ backupChapterCount }}</strong> 章 · <strong>{{ data.notes.length }}</strong> 条灵感 · <strong>{{ workflowRecordCount }}</strong> 条建书记录</p>
         <div class="modal-actions">
           <button class="primary" @click="exportWorkspaceBackup">下载全量备份</button>
@@ -360,8 +360,8 @@
           <input ref="backupInput" type="file" accept=".json,application/json" hidden @change="handleBackupImport" />
         </div>
         <div class="backup-modes" role="radiogroup" aria-label="恢复方式">
-          <label><input v-model="backupMode" type="radio" value="merge" /><span><strong>合并恢复</strong><small>保留当前数据，只添加备份里没有的作品、灵感与建书记录；统计按天取较大值。</small></span></label>
-          <label><input v-model="backupMode" type="radio" value="overwrite" /><span><strong>覆盖恢复</strong><small>清空当前全部数据，完全改用备份内容，包括模型设置。</small></span></label>
+          <label><input v-model="backupMode" type="radio" value="merge" /><span><strong>合并恢复</strong><small>保留当前数据，只添加备份里没有的作品、灵感、建书记录与扫榜快照；统计按天取较大值。</small></span></label>
+          <label><input v-model="backupMode" type="radio" value="overwrite" /><span><strong>覆盖恢复</strong><small>清空当前全部数据，完全改用备份内容，包括模型设置、扫榜快照与拆书库。</small></span></label>
         </div>
         <p v-if="backupNotice" class="backup-notice" role="status">{{ backupNotice }}</p>
         <h3 class="backup-title">导出阅读稿</h3>
@@ -441,11 +441,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { generateChapterProse, generateDraft, refineSelection, requestChatCompletion, type SelectionAction } from './ai'
-import { BACKUP_SIZE_LIMIT, buildWorkspaceBackup, bookToTxt, chapterToTxt, mergeWorkflowRecords, mergeWorkspaceBackup, parseWorkspaceBackup, safeFileName, serializeWorkspaceBackup } from './backup'
+import { BACKUP_SIZE_LIMIT, buildWorkspaceBackup, bookToTxt, chapterToTxt, mergeSideStores, mergeWorkflowRecords, mergeWorkspaceBackup, parseWorkspaceBackup, safeFileName, serializeWorkspaceBackup } from './backup'
 import { designFixture } from './design-fixture'
 import TextDiff from './TextDiff.vue'
 import BreakdownView from './BreakdownView.vue'
 import RankView from './RankView.vue'
+import { emptyStore as emptyBreakdownStore, loadBreakdownStore, saveBreakdownStore } from './breakdown'
+import { emptyRankStore, loadRankStore, saveRankStore } from './rank'
 import { FONT_SIZE_RANGE, loadEditorPrefs, saveEditorPrefs } from './prefs'
 import { createBook, importBookJson, loadData, now, recordChapterVersion, saveData, uid, type Book, type ChatEntry, type Chapter, type ChapterVersion, type InspirationNote, type LoreMode, type Mode } from './storage'
 import { currentStreak, dateKey, DEFAULT_DAILY_GOAL, heatLevel, monthMatrix, pruneStatsBooks, recordWords, totalsFor, trendSeries } from './stats'
@@ -453,6 +455,8 @@ import { buildBookFromWorkflow, createWorkflowRecord, emptyWorkflow, exportWorkf
 
 const designPreview = import.meta.env.DEV && new URLSearchParams(location.search).has('ui-preview')
 const data = ref(designPreview ? designFixture() : loadData())
+/** 备份恢复后自增，提醒拆书与扫榜两个自管存储的页面重新读盘 */
+const dataEpoch = ref(0)
 const importInput = ref<HTMLInputElement | null>(null)
 const workflowImportInput = ref<HTMLInputElement | null>(null)
 const previewPanel = designPreview ? new URLSearchParams(location.search).get('panel') : null
@@ -1381,9 +1385,13 @@ function downloadText(filename: string, text: string, mime: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 function exportWorkspaceBackup() {
-  const backup = buildWorkspaceBackup(data.value, workflowArchive.value, new Date().toISOString())
+  const backup = buildWorkspaceBackup(data.value, workflowArchive.value, new Date().toISOString(), {
+    rank: loadRankStore().snapshots,
+    breakdown: loadBreakdownStore().projects,
+  })
   downloadText(`小说工作台备份-${backup.exportedAt.slice(0, 10)}.json`, serializeWorkspaceBackup(backup), 'application/json')
-  backupNotice.value = `已导出备份：${backup.counts.books} 部作品、${backup.counts.chapters} 章、${backup.counts.notes} 条灵感。`
+  const side = [backup.rank ? `${backup.rank.snapshots.length} 份扫榜快照` : '', backup.breakdown ? `${backup.breakdown.projects.length} 个拆书项目` : ''].filter(Boolean)
+  backupNotice.value = `已导出备份：${backup.counts.books} 部作品、${backup.counts.chapters} 章、${backup.counts.notes} 条灵感${side.length ? `、${side.join('、')}` : ''}。`
 }
 async function handleBackupImport(event: Event) {
   const input = event.target as HTMLInputElement
@@ -1399,18 +1407,32 @@ async function handleBackupImport(event: Event) {
   const overwrite = backupMode.value === 'overwrite'
   if (overwrite && !confirm('覆盖恢复会清空当前全部作品、灵感与统计，确定继续吗？')) return
   let addedRecords = 0
+  let sideNote = ''
   if (overwrite) {
     data.value = backup.data
     if (backup.workflow) { workflowArchive.value = backup.workflow; saveWorkflowArchive(backup.workflow) }
+    saveRankStore({ ...emptyRankStore(), snapshots: backup.rank?.snapshots || [] })
+    saveBreakdownStore({ ...emptyBreakdownStore(), projects: backup.breakdown?.projects || [] })
   } else {
     const merged = mergeWorkspaceBackup(data.value, backup.data)
     data.value = merged.data
     const records = mergeWorkflowRecords(workflowArchive.value.records, backup.workflow?.records || [])
     addedRecords = records.added
     if (addedRecords) { workflowArchive.value = { ...workflowArchive.value, records: records.records }; saveWorkflowArchive(workflowArchive.value) }
-    backupNotice.value = `合并完成：新增 ${merged.summary.addedBooks} 部作品、${merged.summary.addedNotes} 条灵感、${addedRecords} 条建书记录；统计合并了 ${merged.summary.changedDays} 天。`
+    const currentRank = loadRankStore()
+    const currentBreakdown = loadBreakdownStore()
+    const side = mergeSideStores(
+      { rank: currentRank.snapshots, breakdown: currentBreakdown.projects },
+      { rank: backup.rank?.snapshots || [], breakdown: backup.breakdown?.projects || [] }
+    )
+    saveRankStore({ ...currentRank, snapshots: side.rank })
+    saveBreakdownStore({ ...currentBreakdown, projects: side.breakdown })
+    const sideParts = [side.addedRank ? `扫榜快照 ${side.addedRank} 份` : '', side.addedBreakdown ? `拆书项目 ${side.addedBreakdown} 个` : ''].filter(Boolean)
+    sideNote = sideParts.length ? `；${sideParts.join('、')}` : ''
+    backupNotice.value = `合并完成：新增 ${merged.summary.addedBooks} 部作品、${merged.summary.addedNotes} 条灵感、${addedRecords} 条建书记录${sideNote}；统计合并了 ${merged.summary.changedDays} 天。`
   }
   if (overwrite) backupNotice.value = `已用备份覆盖当前数据：${backup.counts.books} 部作品、${backup.counts.chapters} 章。`
+  dataEpoch.value += 1
   const firstBook = data.value.books[0]
   if (!firstBook) { selectedBookId.value = ''; selectedChapterId.value = ''; screen.value = 'shelf' }
   else if (!data.value.books.some(item => item.id === selectedBookId.value)) { selectBook(firstBook.id) }

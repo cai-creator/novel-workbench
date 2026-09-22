@@ -322,10 +322,16 @@ import {
   type RankTagTrend,
 } from './rank'
 
-const props = defineProps<{ model: ModelSettings }>()
+const props = defineProps<{ model: ModelSettings; dataEpoch?: number }>()
 
 const store = ref(loadRankStore())
 const persist = () => saveRankStore(store.value)
+
+/** 备份恢复后重新读盘：本地存储已被 App 改写，内存里的旧快照要作废 */
+watch(() => props.dataEpoch, () => {
+  store.value = loadRankStore()
+  detailSourceId.value = null
+})
 
 const platform = ref<'fanqie' | 'qimao'>('fanqie')
 const rankType = ref('')

@@ -185,7 +185,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { ModelSettings } from './storage'
 import { requestChatCompletion } from './ai'
 import {
@@ -211,10 +211,16 @@ import {
   type BreakdownProject,
 } from './breakdown'
 
-const props = defineProps<{ model: ModelSettings }>()
+const props = defineProps<{ model: ModelSettings; dataEpoch?: number }>()
 
 const store = ref(loadBreakdownStore())
 const persist = () => saveBreakdownStore(store.value)
+
+/** 备份恢复后重新读盘：本地存储已被 App 改写，内存里的旧项目要作废 */
+watch(() => props.dataEpoch, () => {
+  store.value = loadBreakdownStore()
+  if (!store.value.projects.some(item => item.id === activeId.value)) activeId.value = store.value.projects[0]?.id || null
+})
 
 const activeId = ref<string | null>(null)
 const activeProject = computed<BreakdownProject | null>(() => store.value.projects.find(item => item.id === activeId.value) || null)

@@ -580,7 +580,7 @@ const attachSourceCategory = (items: RankItem[], source: RankSeedSource): RankIt
 // 快照存档（localStorage 单键）
 // ---------------------------------------------------------------------------
 
-const emptyRankStore = (): RankStore => ({ version: 1, viewedSourceIds: [], snapshots: [] })
+export const emptyRankStore = (): RankStore => ({ version: 1, viewedSourceIds: [], snapshots: [] })
 
 const asInt = (value: unknown, fallback = 0): number => {
   const num = Number(value)
@@ -1112,6 +1112,27 @@ export function importRankStore(value: unknown): RankSnapshotDoc[] {
     .filter((item): item is RankSnapshotDoc => Boolean(item))
   if (!docs.length) throw new Error('没有可导入的快照')
   return docs
+}
+
+/** 备份合并：同榜单源同日期只留较新抓取的一份，再按保留策略裁剪 */
+export function mergeRankSnapshots(current: RankSnapshotDoc[], incoming: RankSnapshotDoc[]): RankSnapshotDoc[] {
+  const byKey = new Map<string, RankSnapshotDoc>()
+  for (const doc of [...current, ...incoming]) {
+    const key = `${doc.sourceId}|${doc.statDate}`
+    const prev = byKey.get(key)
+    if (!prev || doc.fetchedAt > prev.fetchedAt) byKey.set(key, doc)
+  }
+  return pruneRankSnapshots([...byKey.values()])
+}
+
+/** 从全量备份里取扫榜快照：整体结构不对就当没有，单份坏了只跳过那一份 */
+export function rankSnapshotsFromBackup(value: unknown): RankSnapshotDoc[] {
+  if (!value || typeof value !== 'object') return []
+  const snapshots = (value as { snapshots?: unknown }).snapshots
+  if (!Array.isArray(snapshots)) return []
+  return snapshots
+    .map(item => normalizeSnapshot(item))
+    .filter((item): item is RankSnapshotDoc => Boolean(item))
 }
 
 // ---------------------------------------------------------------------------

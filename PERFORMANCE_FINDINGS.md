@@ -16,4 +16,17 @@
 | P-9 | 版本历史弹窗列表对每个历史版本 countWords：打开弹窗即 30 版 × 整章扫描 | `src/App.vue:412` | 30 × 1.13ms ≈ 34ms + 渲染 | 保存版本时写入字数（ChapterVersion 冗余一个字段）或弹窗打开时算一次缓存 |
 | P-10 | 冷启动同步归一化三库：loadData 25.2ms + loadRankStore 27.2ms + 拆书库（按需加载时才算）；本机合计 ~50ms，慢设备放大 3–5 倍 | `src/storage.ts`、`src/rank.ts:667` | 实测如上；DOM ready 267ms | 榜单/拆书库本就按需加载（组件挂载才读），主数据归一化保留；榜单归一化可分帧或按需 |
 
+## 修正说明（重要）
+首轮「逐键 959ms」的数字是**测量假象**：IAB 隐藏标签页里 `setTimeout(20ms)` 被 Chrome 节流钳到 1000ms，12 次模拟输入的 11.5s 几乎全是节流时间。改用微任务排空法（同步段 + Vue 调度器 flush）实测的真实逐键成本为 **约 4.4ms**（优化后）。下表各项的模块级实测数字不受影响（均为同步计时）。
+
 ## 修复记录（修完一条在标题后追加）
+✅ P-2 已修复（commit ba29e35）：章节目录 v-for 的字数改走 wordOf 缓存（key+内容串命中），重渲染 O(1)。
+✅ P-3 已修复（commit ba29e35）：逐章生文列表同上。
+✅ P-4 已修复（commit ba29e35）：bookWords 依赖 wordOf 缓存，重渲染不再逐章重扫。
+✅ P-5 已修复（commit ba29e35）：countWords 单遍码点计数，口径不变，不再分配中间串/数组。
+✅ P-6 已修复（commit ba29e35 + 0ee8ff0）：自动保存防抖后让到 requestIdleCallback；历史版本 markRaw 脱离响应式后 deep watch 追踪量大幅下降（全树遍历实测 40ms → 4.5ms）。
+✅ P-7 已修复（commit ba29e35）：paper-meta/chapterGoalPercent/bookWords 统一收敛到 wordOf，一键内不再 4 次整章扫描。
+✅ P-8 已修复（commit ba29e35，部分）：选区镜像节点跨事件复用；正文串本身的布局成本保留（完全消除需按行估算，风险大于收益）。
+✅ P-9 已修复（commit ba29e35）：历史列表字数走 wordOf（version.id + 内容命中）。
+🔶 P-1 部分缓解（commit ba29e35 + 0ee8ff0）：重列表绑定全部缓存化 + 历史脱离响应式后，真实逐键成本约 4.4ms（微任务法实测）；单组件拆分未做，若未来模板继续膨胀再评估。
+🔶 P-10 维持现状：榜单/拆书库本就按需加载（切换视图才读），主数据归一化实测 25ms 属可接受冷启动成本，慢设备收益有限不值得引入复杂度。

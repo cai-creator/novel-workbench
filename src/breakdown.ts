@@ -711,7 +711,7 @@ export function exportBreakdownStore(store: BreakdownStore): string {
   return JSON.stringify({ format: BREAKDOWN_FILE_FORMAT, projects: store.projects.slice(0, BREAKDOWN_MAX_PROJECTS) }, null, 2)
 }
 
-/** 导入的拆书项目整体重分配 ID；章节正文与分析一并带入。 */
+/** 导入拆书项目：保留源文件 ID（同一份存档再导入时按 ID 认出重复）；章节正文与分析一并带入。 */
 export function importBreakdownStore(value: unknown): BreakdownProject[] {
   if (!value || typeof value !== 'object') throw new Error('不是有效的拆书文件')
   const payload = value as { format?: unknown; projects?: unknown }
@@ -719,9 +719,13 @@ export function importBreakdownStore(value: unknown): BreakdownProject[] {
     throw new Error(`拆书文件格式不受支持或项目超过 ${BREAKDOWN_MAX_PROJECTS} 个。`)
   }
   const imported: BreakdownProject[] = []
+  const seen = new Set<string>()
   for (const item of payload.projects) {
     const project = normalizeProject(item)
-    if (project) imported.push({ ...project, id: newId() })
+    if (!project) continue
+    if (seen.has(project.id)) continue
+    seen.add(project.id)
+    imported.push(project)
   }
   if (!imported.length) throw new Error('文件里没有可导入的拆书项目')
   return imported

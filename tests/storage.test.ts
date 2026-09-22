@@ -101,15 +101,20 @@ test('createBook 生成带第一章的空作品', () => {
   equal(created.lore, [])
 })
 
-test('importBookJson 重建 ID 且不导入模型密钥', () => {
+test('importBookJson 保留源 ID、重建章节 ID 且不导入模型密钥', () => {
   const imported = importBookJson({
     format: 'novel-workbench-next/book-v1',
     book: { id: 'same', title: '导入作', premise: '概念', chapters: [{ id: 'c1', title: '第一章', content: '正文', updatedAt: '2026-09-20T00:00:00.000Z' }], lore: [], chat: [], updatedAt: '2026-09-20T00:00:00.000Z' },
   })
-  ok(imported.id !== 'same', '作品 ID 重建')
+  equal(imported.id, 'same', 'book id 保留：重复导入同一文件可按 ID 识别')
   ok(imported.chapters[0].id !== 'c1', '章节 ID 重建')
   equal(imported.title, '导入作')
   equal(imported.chapters[0].content, '正文')
+  const rebuilt = importBookJson({
+    format: 'novel-workbench-next/book-v1',
+    book: { title: '没有 ID 的书', chapters: [{ title: '第一章', content: '正文' }], lore: [] },
+  })
+  ok(rebuilt.id.length > 0, '缺 book id 时重建')
 })
 
 test('importBookJson 拒绝不受支持的文件', () => {

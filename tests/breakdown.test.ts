@@ -266,20 +266,23 @@ test('buildBreakdownMarkdown 汇总报告与各章拆解', () => {
   ok(!markdown.includes('## 第2章'), '未拆解的章不进报告')
 })
 
-test('拆书存档可导出并再次导入（ID 重建）', () => {
+test('拆书存档可导出并再次导入（ID 保留，重复可识别）', () => {
   const project = projectOf([{ title: '第一章', text: '一。\n二。' }])
   project.chapters[0].status = 'done'
   project.chapters[0].analysis = normalizeChapterAnalysis({ summary: 's', outline: [{ title: '开篇', startPara: 1, endPara: 1, text: '定调' }] }, 2).analysis
   const exported = exportBreakdownStore({ version: 1, projects: [project] })
   const imported = importBreakdownStore(JSON.parse(exported))
   equal(imported.length, 1)
-  ok(imported[0].id !== project.id, '导入后整体重分配 ID')
+  equal(imported[0].id, project.id, '源 ID 保留，同一份存档再导入时可按 ID 识别重复')
   equal(imported[0].chapters[0].title, '第一章')
   ok(!!imported[0].chapters[0].analysis, '拆解产物一并导入')
   equal(imported[0].status, 'done')
   equal(imported[0].wordCount, project.wordCount, '导入后总字数不丢')
   throws(() => importBreakdownStore({ format: 'other', projects: [] }), '格式不受支持')
   throws(() => importBreakdownStore(null), '不是有效的拆书文件')
+  // 文件内同 ID 的重复项目只留一份
+  const duplicated = importBreakdownStore({ format: BREAKDOWN_FILE_FORMAT, projects: [JSON.parse(exported).projects[0], JSON.parse(exported).projects[0]] })
+  equal(duplicated.length, 1, '文件内重复项目去重')
 })
 
 test('importBreakdownStore 拒绝超大与空文件', () => {

@@ -60,18 +60,20 @@ test('buildBookFromWorkflow 跳过空白设定并在缺书名时报错', () => {
   throws(() => buildBookFromWorkflow(bare({ title: '   ' })), '空白书名应抛错')
 })
 
-test('importWorkflowArchive 重建 ID 并校验文件格式', () => {
+test('importWorkflowArchive 保留源 ID 并校验文件格式', () => {
   const badStep = { ...draft({ title: '导入的草稿' }), step: 9 } as unknown as WorkflowDraft
   const imported = importWorkflowArchive({
     format: 'novel-workbench-next/workflow-archive-v2',
     records: [
       { id: 'old', status: 'draft', draft: badStep, updatedAt: '2026-09-20T00:00:00.000Z' },
       { id: 'done', status: 'completed', draft: draft({ title: '完成的草稿' }), updatedAt: '坏时间', completedAt: '坏时间', bookId: 'b9' },
+      { id: 'old', status: 'draft', draft: draft({ title: '文件内重复' }), updatedAt: '2026-09-20T00:00:00.000Z' },
+      { status: 'draft', draft: draft({ title: '缺 ID 的记录' }), updatedAt: '2026-09-20T00:00:00.000Z' },
     ],
   })
-  equal(imported.length, 2)
-  ok(imported[0].id !== 'old', '记录 ID 重建')
-  ok(imported[0].id !== imported[1].id, 'ID 互不相同')
+  equal(imported.length, 3, '文件内同 ID 的重复记录只留一份')
+  equal(imported[0].id, 'old', '源 ID 保留，重复导入可按 ID 识别')
+  ok(imported[2].id.length > 0, '缺 ID 的记录重建')
   equal(imported[0].draft.title, '导入的草稿')
   equal(imported[0].draft.step, 1, '非法步骤回落默认值')
   ok(Number.isFinite(Date.parse(imported[1].updatedAt)), '坏时间用当前时间兜底')

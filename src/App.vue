@@ -1195,10 +1195,14 @@ async function handleWorkflowImport(event: Event) {
     const records = importWorkflowArchive(JSON.parse(await file.text()))
     if (!records.length) { workflowHistoryNotice.value = '文件中没有建书记录。'; return }
     const previous = workflowArchive.value.records
-    workflowArchive.value.records = [...records, ...previous]
+    const known = new Set(previous.map(item => item.id))
+    const fresh = records.filter(item => !known.has(item.id))
+    const skipped = records.length - fresh.length
+    if (!fresh.length) { workflowHistoryNotice.value = `导入的 ${skipped} 条记录本机都已存在，没有新增。`; return }
+    workflowArchive.value.records = [...fresh, ...previous]
     if (!persistWorkflowArchive()) { workflowArchive.value.records = previous; throw new Error('浏览器空间不足，建书记录未导入。') }
     workflowHistoryFilter.value = 'all'
-    workflowHistoryNotice.value = `已导入 ${records.length} 条记录；完成记录中的作品请单独导入。`
+    workflowHistoryNotice.value = `已导入 ${fresh.length} 条记录${skipped ? `，跳过 ${skipped} 条重复` : ''}；完成记录中的作品请单独导入。`
   } catch (error) { workflowHistoryError.value = error instanceof Error ? error.message : '导入失败，请检查文件内容。' }
 }
 function nextWorkflow() { if (workflow.value.step < 4) workflow.value.step = (workflow.value.step + 1) as WorkflowDraft['step'] }
@@ -1507,6 +1511,11 @@ async function handleImport(event: Event) {
   if (file.size > 50 * 1024 * 1024) { alert('文件超过 50MB，暂不支持导入。'); return }
   try {
     const imported = importBookJson(JSON.parse(await file.text()))
+    // 源 ID 与现有作品碰撞时重建，其余场合保留：重复导入同一文件才能被识别
+    if (data.value.books.some(item => item.id === imported.id)) imported.id = uid()
+    const fingerprint = (item: Book) => `${item.title.trim()}|${item.premise.trim()}|${item.chapters[0]?.title.trim() || ''}`
+    if (data.value.books.some(item => fingerprint(item) === fingerprint(imported)) &&
+        !confirm('书架里已有同名、同概念、同首章标题的作品，这可能是重复导入。仍要导入这份文件吗？')) return
     // 先算账再动内存：装不进存储配额就直接拒绝导入，不留一本「只在内存里」的书拖垮后续自动保存
     assertStorageFits({ ...data.value, books: [imported, ...data.value.books] })
     data.value.books.unshift(imported)

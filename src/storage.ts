@@ -357,6 +357,7 @@ export function importBookJson(value: unknown): Book {
       .map(item => ({ id: uid(), role: item.role, mode: item.mode, content: item.content,
         chapterId: chapterIds.get(String(item.chapterId || '')), adopted: !!item.adopted }))
     : []
-  return { id: uid(), title: source.title.trim(), premise: typeof source.premise === 'string' ? source.premise : '',
+  // 保留源文件 book id（调用方负责与现有作品碰撞时重建）：重复导入同一文件时才能按 ID 认出
+  return { id: typeof source.id === 'string' && source.id.trim() ? source.id : uid(), title: source.title.trim(), premise: typeof source.premise === 'string' ? source.premise : '',
     chapters, lore, chat, updatedAt: now() }
 }

@@ -403,7 +403,12 @@ function handleJsonChange(event: Event) {
   void file.text().then(text => {
     try {
       const imported = importBreakdownStore(JSON.parse(text))
-      store.value = { ...store.value, projects: [...imported, ...store.value.projects].slice(0, 30) }
+      const known = new Set(store.value.projects.map(item => item.id))
+      const fresh = imported.filter(item => !known.has(item.id))
+      const skipped = imported.length - fresh.length
+      if (!fresh.length) { listError.value = `导入的 ${skipped} 个项目本机都已存在，没有新增。`; return }
+      store.value = { ...store.value, projects: [...fresh, ...store.value.projects].slice(0, 30) }
+      listError.value = skipped ? `已导入 ${fresh.length} 个项目，跳过 ${skipped} 个重复项目。` : ''
       persist()
     } catch (error) {
       listError.value = error instanceof Error ? error.message : String(error)

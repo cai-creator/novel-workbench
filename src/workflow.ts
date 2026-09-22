@@ -112,11 +112,20 @@ export function importWorkflowArchive(value: unknown): WorkflowRecord[] {
         ['draft', 'completed'].includes(item.status) && item.draft && typeof item.draft === 'object')) {
     throw new Error('建书记录文件格式不受支持或记录超过 200 条。')
   }
-  return payload.records.map(item => ({
-    id: uid(), status: item.status as WorkflowRecord['status'], draft: normalizeDraft(item.draft),
-    updatedAt: typeof item.updatedAt === 'string' && Number.isFinite(Date.parse(item.updatedAt)) ? item.updatedAt : now(),
-    completedAt: typeof item.completedAt === 'string' && Number.isFinite(Date.parse(item.completedAt)) ? item.completedAt : undefined,
-  }))
+  // 保留源文件 ID（缺失才重建）：同一份存档再导入时 ID 不变，调用方按 ID 就能认出重复
+  const seen = new Set<string>()
+  const records: WorkflowRecord[] = []
+  for (const item of payload.records) {
+    const id = typeof item.id === 'string' && item.id.trim() ? item.id : uid()
+    if (seen.has(id)) continue
+    seen.add(id)
+    records.push({
+      id, status: item.status as WorkflowRecord['status'], draft: normalizeDraft(item.draft),
+      updatedAt: typeof item.updatedAt === 'string' && Number.isFinite(Date.parse(item.updatedAt)) ? item.updatedAt : now(),
+      completedAt: typeof item.completedAt === 'string' && Number.isFinite(Date.parse(item.completedAt)) ? item.completedAt : undefined,
+    })
+  }
+  return records
 }
 
 export function parseChapterPlan(outline: string): { title: string; outline: string }[] {

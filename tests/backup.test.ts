@@ -29,6 +29,37 @@ test('格式错误或数据损坏的备份被拒绝', () => {
   equal(parseWorkspaceBackup(broken), null)
 })
 
+test('备份里的畸形 draft 归一为安全草稿，不再冻结历史列表与建书页', () => {
+  const parsed = parseWorkspaceBackup({
+    format: 'novel-workbench-next/backup-v1',
+    exportedAt: '2026-09-22T10:00:00.000Z',
+    data: project([]),
+    workflow: {
+      version: 2,
+      activeId: 'r1',
+      records: [
+        { id: 'r1', status: 'draft', updatedAt: '2026-09-21T00:00:00.000Z', draft: {} },
+        { id: 'r2', status: 'draft', updatedAt: '2026-09-21T00:00:00.000Z', draft: { title: 42, outline: { bad: true }, step: 9 } },
+        { id: 'r3', status: 'draft', updatedAt: '2026-09-21T00:00:00.000Z', draft: { title: '  正常标题 ', step: 3 } },
+        { id: 'r4', status: 'draft', updatedAt: '2026-09-21T00:00:00.000Z', draft: '不是对象' },
+      ],
+    },
+  })
+  ok(parsed !== null, '备份本身仍可解析')
+  const records = parsed?.workflow?.records || []
+  equal(records.length, 3, 'draft 非对象的记录被剔除')
+  const r1 = records.find(item => item.id === 'r1')!
+  equal(r1.draft.title, '', '缺失字段补空串，title.trim() 不再崩')
+  equal(r1.draft.step, 1, '缺失步骤回落第 1 步')
+  const r2 = records.find(item => item.id === 'r2')!
+  equal(r2.draft.title, '', '非字符串书名重置为空')
+  equal(r2.draft.outline, '', '非字符串大纲重置为空，parseChapterPlan 不再崩')
+  equal(r2.draft.step, 1, '越界步骤重置为第 1 步，workflowSteps[step-1] 不再越界')
+  const r3 = records.find(item => item.id === 'r3')!
+  equal(r3.draft.title, '  正常标题 ', '合法字段原样保留（trim 由展示层处理）')
+  equal(r3.draft.step, 3, '合法步骤保留')
+})
+
 test('合并恢复只添加不存在的作品并保留本地模型设置', () => {
   const current = project([book('b1', '在写作品', [chapter('c1', '第一章', '本地正文')])])
   current.model = { baseUrl: 'http://127.0.0.1:6799/v1', model: 'mock', apiKey: 'local-key' }

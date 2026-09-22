@@ -2,6 +2,7 @@ import type { Book, Chapter, ProjectData } from './storage'
 import { normalizeProjectData } from './storage'
 import { pruneStats, type DayStats, type StatsState } from './stats'
 import type { WorkflowArchive, WorkflowRecord } from './workflow'
+import { normalizeDraft } from './workflow'
 import { mergeRankSnapshots, rankSnapshotsFromBackup, type RankSnapshotDoc } from './rank'
 import { breakdownProjectsFromBackup, mergeBreakdownProjects, type BreakdownProject } from './breakdown'
 
@@ -63,10 +64,11 @@ function normalizeBackupRecord(value: unknown): WorkflowRecord | null {
   if (source.status !== 'draft' && source.status !== 'completed') return null
   if (typeof source.updatedAt !== 'string' || !Number.isFinite(Date.parse(source.updatedAt))) return null
   if (!source.draft || typeof source.draft !== 'object') return null
+  // draft 归一后再入库：缺字段补空、step 越界重置，历史列表与建书页不会再被畸形备份冻结
   return {
     id: source.id,
     status: source.status,
-    draft: source.draft,
+    draft: normalizeDraft(source.draft),
     updatedAt: source.updatedAt,
     completedAt: typeof source.completedAt === 'string' && Number.isFinite(Date.parse(source.completedAt)) ? source.completedAt : undefined,
     bookId: typeof source.bookId === 'string' ? source.bookId : undefined,

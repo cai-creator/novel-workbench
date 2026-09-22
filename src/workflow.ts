@@ -37,7 +37,8 @@ export interface WorkflowArchive {
 
 const emptyArchive = (): WorkflowArchive => ({ version: 2, activeId: null, records: [] })
 const draftFields = ['title', 'genre', 'audience', 'tone', 'seed', 'idea', 'outline', 'world', 'characters', 'timeline'] as const
-function normalizeDraft(value: unknown): WorkflowDraft {
+/** 草稿归一：只认字符串字段与 1-4 的步骤，缺的补空、坏的重置；备份里的 draft 也走这里。 */
+export function normalizeDraft(value: unknown): WorkflowDraft {
   const draft = emptyWorkflow()
   if (!value || typeof value !== 'object') return draft
   const source = value as Record<string, unknown>

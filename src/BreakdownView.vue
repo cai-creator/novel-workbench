@@ -233,6 +233,7 @@ import {
   createBreakdownProject,
   exportBreakdownStore,
   extractJsonObject,
+  emptyStore,
   formatBreakdownMaterials,
   importBreakdownStore,
   loadBreakdownStore,
@@ -251,9 +252,12 @@ import {
 
 const props = defineProps<{ model: ModelSettings; dataEpoch?: number }>()
 
-const store = ref(loadBreakdownStore())
+const designPreview = import.meta.env.DEV && new URLSearchParams(location.search).has('ui-preview')
+// 设计预览下不读不写真实 localStorage，避免预览操作污染本机数据
+const store = ref(designPreview ? emptyStore() : loadBreakdownStore())
 /** 统一落盘：配额等写失败由 quota 模块广播告警，这里再落到页面错误区，不再让异常乱飞 */
 const persist = (): boolean => {
+  if (designPreview) return true
   try {
     saveBreakdownStore(store.value)
     return true
@@ -315,7 +319,7 @@ const download = (payload: string, filename: string, type: string) => {
   link.href = url
   link.download = filename
   link.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  setTimeout(() => URL.revokeObjectURL(url), 60000)
 }
 
 const safeName = (title: string) => title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 40) || '拆书'

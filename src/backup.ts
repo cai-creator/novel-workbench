@@ -228,7 +228,8 @@ export function bookToTxt(book: Book): string {
   return `${parts.join('\n\n\n')}\n`
 }
 
+/** 导出文件名统一口径：去非法字符、折叠空白、截到 80 字符（Windows 单段 255 字节上限），空名回落 */
 export function safeFileName(name: string, fallback: string): string {
-  const cleaned = name.replace(/[\\/:*?"<>|\r\n]+/g, '_').replace(/\s+/g, ' ').trim().replace(/^_+|_+$/g, '')
+  const cleaned = name.replace(/[\\/:*?"<>|\r\n]+/g, '_').replace(/\s+/g, ' ').trim().replace(/^_+|_+$/g, '').slice(0, 80).trim()
   return cleaned || fallback
 }

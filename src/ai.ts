@@ -115,7 +115,7 @@ export function chapterProsePrompt(book: Book, chapterId: string, instruction: s
 export async function generateChapterProse(args: { model: ModelSettings; book: Book; chapterId: string; instruction: string; targetLength: number; kind: 'continue' | 'rewrite'; signal: AbortSignal; onTruncated?: (message: string) => void }): Promise<string> {
   const { model, book, chapterId, instruction, targetLength, kind, signal, onTruncated } = args
   const prompt = chapterProsePrompt(book, chapterId, instruction, targetLength, kind)
-  return requestChatCompletion({ model, system: prompt.system, user: prompt.user, signal, maxTokens: Math.min(6500, Math.max(2400, targetLength * 3)), onTruncated })
+  return requestChatCompletion({ model, system: prompt.system, user: prompt.user, signal, maxTokens: Math.min(8000, Math.max(2400, targetLength * 3)), onTruncated })
 }
 
 export type SelectionAction = 'polish' | 'expand' | 'proofread' | 'custom'

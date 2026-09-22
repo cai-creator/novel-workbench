@@ -356,6 +356,7 @@
         <p class="backup-summary">当前共有 <strong>{{ data.books.length }}</strong> 部作品 · <strong>{{ backupChapterCount }}</strong> 章 · <strong>{{ data.notes.length }}</strong> 条灵感 · <strong>{{ workflowRecordCount }}</strong> 条建书记录</p>
         <div class="modal-actions">
           <button class="primary" @click="exportWorkspaceBackup">下载全量备份</button>
+          <label class="find-option"><input v-model="backupExcludeKey" type="checkbox" />不含模型密钥</label>
           <button class="secondary" @click="backupInput?.click()">选择备份文件恢复</button>
           <input ref="backupInput" type="file" accept=".json,application/json" hidden @change="handleBackupImport" />
         </div>
@@ -518,6 +519,10 @@ const workflowHistoryNotice = ref('')
 const breakdownStore = ref<BreakdownStore>(designPreview ? emptyBreakdownStore() : loadBreakdownStore())
 
 type BreakdownPickerField = 'idea' | 'outline' | 'world' | 'characters'
+/** 带入拆书素材的字段预警阈值：超过后 AI 生成的输入可能超模型上下文 */
+const BREAKDOWN_APPEND_WARN_CHARS = 8000
+/** 划词修改的选区字数上限：输出上限只有 2400 token，更大的选区换回的片段无法对位替换 */
+const SELECTION_MAX_CHARS = 2000
 const breakdownPickerFieldLabels: Record<BreakdownPickerField, string> = {
   idea: '可用创意',
   outline: '故事主线与章节规划',
@@ -594,6 +599,9 @@ function confirmBreakdownMaterials() {
   if (!text) { breakdownPickerNotice.value = '内容已清空，没有可带入的素材。'; return }
   const field = breakdownPickerField.value
   const current = workflow.value[field].trim()
+  // 字段已经很长的预先确认：带入后可能超出模型上下文，AI 生成只剩报错
+  if (current.length + text.length > BREAKDOWN_APPEND_WARN_CHARS &&
+      !confirm(`「${breakdownPickerFieldLabels[field]}」已 ${current.length} 字，再带入 ${text.length} 字可能超出模型上下文。仍要带入吗？`)) return
   workflow.value = { ...workflow.value, [field]: current ? `${current}\n\n${text}` : text }
   breakdownPickerNotice.value = `已把微调后的${breakdownDraftMeta.value}带进${breakdownPickerFieldLabels[field]}。`
   showBreakdownPicker.value = false
@@ -655,6 +663,8 @@ const historyDiff = ref(designPreview && previewPanel === 'history-diff')
 const historyNotice = ref('')
 const showBackup = ref(designPreview && previewPanel === 'backup')
 const backupMode = ref<'merge' | 'overwrite'>('merge')
+/** 导出备份时是否写入模型密钥；发群/云盘场合可不带 */
+const backupExcludeKey = ref(false)
 const backupNotice = ref('')
 const backupInput = ref<HTMLInputElement | null>(null)
 const backupChapterCount = computed(() => data.value.books.reduce((sum, item) => sum + item.chapters.length, 0))
@@ -983,6 +993,8 @@ async function runSelectionAction(action: SelectionAction) {
   if (!bubble || !book.value || !chapter.value || selectionBusy.value) return
   const instruction = action === 'custom' ? selectionInstruction.value.trim() : ''
   if (action === 'custom' && !instruction) { showToast('先写下想怎么改'); return }
+  // 整章选区全量发给模型既贵又超出输出上限，返回的片段替换回几万字原文必错位：宁可拒绝
+  if (bubble.text.length > SELECTION_MAX_CHARS) { showToast(`划词内容超过 ${SELECTION_MAX_CHARS} 字，请缩小选区后再润色`); return }
   selectionBusy.value = true
   const requestController = new AbortController()
   selectionController = requestController
@@ -1188,7 +1200,7 @@ function exportWorkflowRecords() {
   link.href = url
   link.download = `建书记录-${new Date().toISOString().slice(0, 10)}.json`
   link.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  setTimeout(() => URL.revokeObjectURL(url), 60000)
 }
 async function handleWorkflowImport(event: Event) {
   const input = event.target as HTMLInputElement
@@ -1352,7 +1364,8 @@ function adoptProduction() {
   if (chapter.value.content.trim()) recordChapterVersion(chapter.value, 'ai')
   const previousContent = chapter.value.content
   chapter.value.content = productionInsert.value === 'replace' ? content : [chapter.value.content.trimEnd(), content].filter(Boolean).join('\n\n')
-  recordWordDelta('ai', book.value.id, countWords(chapter.value.content) - (productionInsert.value === 'replace' ? 0 : countWords(previousContent)))
+  // 与划词修改同一口径：记「新稿 − 原稿」净差，替换不把整章旧稿算成当日 AI 产出
+  recordWordDelta('ai', book.value.id, countWords(chapter.value.content) - countWords(previousContent))
   chapterLengths.set(chapter.value.id, countWords(chapter.value.content))
   chapter.value.proseCandidates = chapter.value.proseCandidates?.filter(item => item.id !== candidate.id)
   const nextCandidateId = chapter.value.proseCandidates?.[0]?.id || ''
@@ -1483,7 +1496,8 @@ function adoptPreview() {
     if (target.content.trim()) recordChapterVersion(target, 'ai')
     const previousContent = target.content
     target.content = draft.insert === 'replace' ? content : [target.content.trimEnd(), content].filter(Boolean).join('\n\n')
-    recordWordDelta('ai', targetBook.id, countWords(target.content) - (draft.insert === 'replace' ? 0 : countWords(previousContent)))
+    // 与划词修改同一口径：记净差而不是替换时的整章全量
+    recordWordDelta('ai', targetBook.id, countWords(target.content) - countWords(previousContent))
     chapterLengths.set(target.id, countWords(target.content))
     target.updatedAt = now()
     targetBook.updatedAt = target.updatedAt
@@ -1506,9 +1520,9 @@ function exportBook() {
   const url = URL.createObjectURL(new Blob([payload], { type: 'application/json' }))
   const link = document.createElement('a')
   link.href = url
-  link.download = `${book.value.title.replace(/[\\/:*?"<>|]/g, '_')}.json`
+  link.download = `${safeFileName(book.value.title, '未命名作品')}.json`
   link.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  setTimeout(() => URL.revokeObjectURL(url), 60000)
 }
 async function handleImport(event: Event) {
   const input = event.target as HTMLInputElement
@@ -1538,16 +1552,20 @@ function downloadText(filename: string, text: string, mime: string) {
   link.href = url
   link.download = filename
   link.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  setTimeout(() => URL.revokeObjectURL(url), 60000)
 }
 function exportWorkspaceBackup() {
-  const backup = buildWorkspaceBackup(data.value, workflowArchive.value, new Date().toISOString(), {
+  // 勾「不含密钥」时导出的备份不写模型密钥：适合发群/云盘的场合
+  const payloadData = backupExcludeKey.value
+    ? { ...data.value, model: { ...data.value.model, apiKey: '' } }
+    : data.value
+  const backup = buildWorkspaceBackup(payloadData, workflowArchive.value, new Date().toISOString(), {
     rank: loadRankStore().snapshots,
     breakdown: loadBreakdownStore().projects,
   })
   downloadText(`小说工作台备份-${backup.exportedAt.slice(0, 10)}.json`, serializeWorkspaceBackup(backup), 'application/json')
   const side = [backup.rank ? `${backup.rank.snapshots.length} 份扫榜快照` : '', backup.breakdown ? `${backup.breakdown.projects.length} 个拆书项目` : ''].filter(Boolean)
-  backupNotice.value = `已导出备份：${backup.counts.books} 部作品、${backup.counts.chapters} 章、${backup.counts.notes} 条灵感${side.length ? `、${side.join('、')}` : ''}。`
+  backupNotice.value = `已导出备份：${backup.counts.books} 部作品、${backup.counts.chapters} 章、${backup.counts.notes} 条灵感${side.length ? `、${side.join('、')}` : ''}。${backupExcludeKey.value ? '（不含模型密钥）' : ''}`
 }
 async function handleBackupImport(event: Event) {
   const input = event.target as HTMLInputElement

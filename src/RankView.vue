@@ -297,6 +297,7 @@ import {
   importRankPaste,
   importRankStore,
   listRankSnapshotDates,
+  emptyRankStore,
   loadRankStore,
   rankAuthorTrend,
   rankChange,
@@ -309,6 +310,7 @@ import {
   rankTagTrends,
   readRankSnapshot,
   removeRankSnapshot,
+  RANK_MAX_RIVAL_IDS,
   RANK_MAX_SNAPSHOTS,
   saveRankStore,
   toSourceOption,
@@ -325,9 +327,12 @@ import {
 
 const props = defineProps<{ model: ModelSettings; dataEpoch?: number }>()
 
-const store = ref(loadRankStore())
+const designPreview = import.meta.env.DEV && new URLSearchParams(location.search).has('ui-preview')
+// 设计预览下不读不写真实 localStorage，避免预览操作污染本机数据
+const store = ref(designPreview ? emptyRankStore() : loadRankStore())
 /** 统一落盘：配额等写失败由 quota 模块广播告警，这里再落到页面错误区，不再让异常乱飞 */
 const persist = (): boolean => {
+  if (designPreview) return true
   try {
     saveRankStore(store.value)
     return true
@@ -524,7 +529,7 @@ const download = (payload: string, filename: string, type: string): void => {
   link.href = url
   link.download = filename
   link.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  setTimeout(() => URL.revokeObjectURL(url), 60000)
 }
 
 function openSource(sourceId: number): void {
@@ -645,8 +650,10 @@ async function handleArchive(event: Event): Promise<void> {
 }
 
 function runRival(): void {
+  const ids = [...new Set(rivalIds.value.split(',').map(id => id.trim()).filter(Boolean))]
+  if (ids.length > RANK_MAX_RIVAL_IDS) notice.value = `竞品 ID 最多比对 ${RANK_MAX_RIVAL_IDS} 个，已取去重后的前 ${RANK_MAX_RIVAL_IDS} 个`
   const result = rankCompetitor(
-    { siteCode: platform.value, bookIds: rivalIds.value, days: rivalDays.value },
+    { siteCode: platform.value, bookIds: ids.slice(0, RANK_MAX_RIVAL_IDS).join(','), days: rivalDays.value },
     store.value
   )
   rivalResult.value = { list: result.list, seriesDates: result.list[0]?.series.map(point => point.date) || [] }

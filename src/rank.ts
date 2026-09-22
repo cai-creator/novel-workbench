@@ -185,6 +185,8 @@ export const RANK_FILE_FORMAT = 'novel-workbench-next/rank-v1'
 export const RANK_RETENTION_DAYS = 120
 export const RANK_MAX_SNAPSHOTS = 400
 export const RANK_MAX_ITEMS = 200
+/** 竞品对比一次最多比对的 ID 数：上限太高会把同步计算和结果渲染拖垮 */
+export const RANK_MAX_RIVAL_IDS = 50
 export const RANK_MAX_VIEWED_SOURCES = 12
 const MANUAL_RECRAWL_MIN_MS = 30 * 60 * 1000
 const FETCH_TIMEOUT_MS = 20_000
@@ -257,7 +259,9 @@ export const rankSourceLabel = (source: RankSeedSource | RankSource): string => 
 // ---------------------------------------------------------------------------
 
 export const localDate = (offsetDays = 0): string => {
-  const date = new Date(Date.now() - offsetDays * 86400000)
+  // 按日历天数回退而不是减固定毫秒数：夏令时切换日的 ±23/25 小时不会造成日期错位
+  const date = new Date()
+  date.setDate(date.getDate() - offsetDays)
   const y = date.getFullYear()
   const m = String(date.getMonth() + 1).padStart(2, '0')
   const d = String(date.getDate()).padStart(2, '0')
@@ -996,10 +1000,11 @@ export function rankCompetitor(
 ): RankCompetitorResult {
   const days = Math.max(2, Math.min(Number(params.days || 14), 60))
   const dates = dateRange(days, params.endDate)
-  const wanted = String(params.bookIds || '')
+  // 去重并封顶：粘贴上千个 ID 会让同步计算与表格渲染冻住页面
+  const wanted = [...new Set(String(params.bookIds || '')
     .split(',')
     .map(id => id.trim())
-    .filter(Boolean)
+    .filter(Boolean))].slice(0, RANK_MAX_RIVAL_IDS)
   const seriesByBook = new Map<string, { bookTitle: string; series: RankCompetitorSeries[] }>()
   for (const bookId of wanted) seriesByBook.set(bookId, { bookTitle: '', series: [] })
   for (const date of dates) {
@@ -1227,10 +1232,15 @@ const fetchQimaoRank = async (baseUrl: string, maxPages: number): Promise<RankIt
   for (let page = 1; page <= Math.max(1, Math.min(maxPages, 5)); page += 1) {
     const url = new URL(baseUrl)
     // 日榜固定年月会把快照写旧：清掉 date 用实时榜
-    if (String(url.searchParams.get('date_type') || '') === '1') url.searchParams.set('date', '')
+    if (String(url.searchParams.get('date_type') || '') === '1') url.searchParams.delete('date')
     url.searchParams.set('page', String(page))
     const text = await fetchRankText(url.toString(), 'application/json, text/plain, */*')
-    const pageItems = parseQimaoRankJson(JSON.parse(text))
+    let pageItems: RankItem[]
+    try {
+      pageItems = parseQimaoRankJson(JSON.parse(text))
+    } catch {
+      throw new Error('七猫接口未返回 JSON（可能触发风控或接口变更），已停止抓取。')
+    }
     if (!pageItems.length) break
     for (const item of pageItems) {
       const key = item.bookId || item.bookUrl
@@ -1271,7 +1281,8 @@ export async function crawlRankSnapshot(store: RankStore, sourceId: number): Pro
   const today = localDate()
   const existing = readRankSnapshot(store, sourceId, today)
   if (existing && Date.now() - existing.fetchedAt < MANUAL_RECRAWL_MIN_MS) {
-    return { crawled: false, message: '半小时内刚抓过，展示当前数据', statDate: today }
+    // 文案如实区分上一份快照是抓来的还是粘来的
+    return { crawled: false, message: existing.origin === 'paste' ? '半小时内刚粘贴导入过，展示当前数据' : '半小时内刚抓过，展示当前数据', statDate: today }
   }
   const crawled = await crawlRankSource(source)
   const items = attachSourceCategory(crawled.items, source)
@@ -1320,6 +1331,9 @@ export function importRankPaste(store: RankStore, sourceId: number, text: string
   const parsed = parseRankPaste(text, source)
   const items = attachSourceCategory(parsed.items, source)
   const today = localDate()
+  const existing = readRankSnapshot(store, sourceId, today)
+  // 粘贴会覆盖同日快照：顶掉刚抓取的新鲜数据时如实告知
+  const overwroteFreshCrawl = !!existing && existing.origin === 'crawl' && Date.now() - existing.fetchedAt < MANUAL_RECRAWL_MIN_MS
   writeRankSnapshot(store, {
     sourceId,
     statDate: today,
@@ -1329,7 +1343,7 @@ export function importRankPaste(store: RankStore, sourceId: number, text: string
     origin: 'paste',
     items,
   })
-  return { crawled: true, message: `已导入 ${items.length} 条`, statDate: today }
+  return { crawled: true, message: `已导入 ${items.length} 条${overwroteFreshCrawl ? '（已覆盖半小时内抓取的快照，如需保留可重新抓取）' : ''}`, statDate: today }
 }
 
 // ---------------------------------------------------------------------------

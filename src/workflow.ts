@@ -161,17 +161,32 @@ export function buildBookFromWorkflow(draft: WorkflowDraft): Book {
   return book
 }
 
+/** 建书 prompt 各字段的输入预算：字段攒到几万字会把 8K 上下文模型直接打爆 */
+const WORKFLOW_PROMPT_LIMITS: Array<[keyof WorkflowDraft, number]> = [
+  ['outline', 4000],
+  ['world', 2000],
+  ['characters', 2000],
+  ['idea', 2000],
+  ['seed', 800],
+]
+
+/** 超预算的字段截断并明示，避免模型静默吃掉半篇或报英文上下文超限 */
 export function workflowPrompt(field: WorkflowField, draft: WorkflowDraft): { system: string; user: string } {
+  const clipped = (key: keyof WorkflowDraft, limit: number): string => {
+    const text = String(draft[key] || '')
+    return text.length > limit ? `${text.slice(0, limit)}……（已截断，原文 ${text.length} 字）` : text
+  }
+  const limits = Object.fromEntries(WORKFLOW_PROMPT_LIMITS) as Record<string, number>
   const context = [
     `类型：${draft.genre || '未定'}`,
     `目标读者：${draft.audience || '未定'}`,
     `叙事风格：${draft.tone || '未定'}`,
-    `原始灵感：${draft.seed || '未填写'}`,
-    `已确定创意：${draft.idea || '未填写'}`,
+    `原始灵感：${clipped('seed', limits.seed) || '未填写'}`,
+    `已确定创意：${clipped('idea', limits.idea) || '未填写'}`,
     `书名：${draft.title || '未定'}`,
-    `故事大纲：${draft.outline || '未填写'}`,
-    `世界设定：${draft.world || '未填写'}`,
-    `人物设定：${draft.characters || '未填写'}`,
+    `故事大纲：${clipped('outline', limits.outline) || '未填写'}`,
+    `世界设定：${clipped('world', limits.world) || '未填写'}`,
+    `人物设定：${clipped('characters', limits.characters) || '未填写'}`,
   ].join('\n')
   const tasks: Record<WorkflowField, string> = {
     idea: '将原始灵感发展成一条适合连载小说的创意，140—220 字。写明主角的迫切目标、阻力、独特机制、失败代价与第一章悬念。只给可直接采用的创意正文。',

@@ -202,11 +202,65 @@ export function normalizeProjectData(value: unknown): ProjectData | null {
   if (!isProjectData(value)) return null
   return {
     version: 2,
-    books: value.books,
+    books: normalizeBooks(value.books),
     model: value.model,
     stats: normalizeStats(value.stats),
     notes: normalizeNotes(value.notes),
   }
+}
+
+const LORE_MODES: LoreMode[] = ['world', 'character', 'plot', 'timeline']
+const CHAT_MODES: Mode[] = ['prose', 'world', 'character', 'plot']
+
+const asText = (value: unknown, fallback: string) => typeof value === 'string' ? value : fallback
+const asTimestamp = (value: unknown, fallback: string) =>
+  typeof value === 'string' && Number.isFinite(Date.parse(value)) ? value : fallback
+
+/** 章节级校验：手改或损坏的 localStorage、畸形备份都从这里过一遍，坏字段就地修复而不是带病上线 */
+export function normalizeBooks(value: unknown): Book[] {
+  if (!Array.isArray(value)) return []
+  return value.filter(item => item && typeof item === 'object').map((book: Partial<Book>) => {
+    const updatedAt = asTimestamp(book.updatedAt, now())
+    const chapters = (Array.isArray(book.chapters) ? book.chapters : [])
+      .filter(item => item && typeof item === 'object')
+      .map((item: Partial<Chapter>) => {
+        const chapter: Chapter = {
+          id: asText(item.id, '') || uid(),
+          title: asText(item.title, '未命名章节'),
+          outline: asText(item.outline, ''),
+          content: asText(item.content, ''),
+          updatedAt: asTimestamp(item.updatedAt, updatedAt),
+        }
+        if (typeof item.wordGoal === 'number' && Number.isFinite(item.wordGoal) && item.wordGoal > 0) chapter.wordGoal = item.wordGoal
+        if (Array.isArray(item.history)) {
+          chapter.history = item.history.filter((version: Partial<ChapterVersion>) => version && typeof version === 'object' &&
+            typeof version.content === 'string' && typeof version.title === 'string')
+        }
+        if (item.proseCandidates !== undefined) chapter.proseCandidates = item.proseCandidates as Chapter['proseCandidates']
+        if (item.proseCandidate !== undefined) chapter.proseCandidate = item.proseCandidate
+        return chapter
+      })
+    const lore = (Array.isArray(book.lore) ? book.lore : [])
+      .filter(item => item && typeof item === 'object' && typeof item.title === 'string' &&
+        typeof item.content === 'string' && LORE_MODES.includes(item.mode as LoreMode))
+      .map((item: Partial<Lore>) => ({ id: asText(item.id, '') || uid(), title: item.title as string, content: item.content as string,
+        mode: item.mode as LoreMode, timeLabel: asText(item.timeLabel, '') || undefined }))
+    const chat = (Array.isArray(book.chat) ? book.chat : [])
+      .filter(item => item && typeof item === 'object' && typeof item.content === 'string' &&
+        ['user', 'assistant'].includes(item.role as string) && CHAT_MODES.includes(item.mode as Mode))
+      .map((item: Partial<ChatEntry>) => ({ id: asText(item.id, '') || uid(), role: item.role as ChatEntry['role'],
+        mode: item.mode as ChatEntry['mode'], content: item.content as string,
+        chapterId: asText(item.chapterId, '') || undefined, adopted: !!item.adopted }))
+    return {
+      id: asText(book.id, '') || uid(),
+      title: asText(book.title, '未命名作品'),
+      premise: asText(book.premise, ''),
+      chapters,
+      lore,
+      chat,
+      updatedAt,
+    }
+  })
 }
 
 /** 兼容此前的单候选作品，并过滤备份中的无效候选。 */

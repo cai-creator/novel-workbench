@@ -1,5 +1,5 @@
 import { equal, ok, test, throws } from './harness'
-import { createBook, importBookJson, isProjectData, loadData, migrateProseCandidates, normalizeNotes, normalizeProjectData, normalizeStats, recordChapterVersion, releaseCorruptDataProtection, saveData, takeCorruptDataNotice } from '../src/storage'
+import { createBook, importBookJson, isProjectData, loadData, migrateProseCandidates, normalizeBooks, normalizeNotes, normalizeProjectData, normalizeStats, recordChapterVersion, releaseCorruptDataProtection, saveData, takeCorruptDataNotice } from '../src/storage'
 import { emptyStatsState, MAX_STATS_DAYS } from '../src/stats'
 import type { Chapter, ProjectData } from '../src/storage'
 
@@ -181,6 +181,81 @@ test('用户确认覆盖恢复后可解除写入保护', () => {
   releaseCorruptDataProtection()
   saveData(usableData())
   equal(loadData().books.length, 1, '解除保护后恢复备份可正常落盘')
+})
+
+test('normalizeBooks 逐章修复坏字段，坏条目就地剔除', () => {
+  const books = normalizeBooks([
+    {
+      id: 'b1', title: 42, premise: null, updatedAt: 'bad-date',
+      chapters: [
+        { id: 'c1', title: '第一章', content: '正文', updatedAt: '2026-09-20T00:00:00.000Z' },
+        { title: '缺内容' },                                  // 缺 content/updatedAt
+        { id: '', title: '缺 ID', content: '补 ID', updatedAt: 'bad' },
+        null, '垃圾',
+      ],
+      lore: [
+        { id: 'l1', title: '世界', content: '规则', mode: 'world' },
+        { id: 'l2', title: '坏模式', content: 'x', mode: 'magic' },
+        { title: '缺内容', mode: 'world' },
+        null,
+      ],
+      chat: [
+        { id: 'h1', role: 'user', mode: 'prose', content: '你好' },
+        { id: 'h2', role: 'system', mode: 'prose', content: '坏角色' },
+        { id: 'h3', role: 'assistant', mode: 'prose', content: '回答' },
+        null,
+      ],
+      historyNoise: true,
+    },
+    null, 7,
+  ])
+  equal(books.length, 1, '非对象的书被剔除')
+  const book = books[0]
+  equal(book.title, '未命名作品', '非字符串书名兜底')
+  ok(Number.isFinite(Date.parse(book.updatedAt)), '坏日期重建为当前时间')
+  equal(book.chapters.length, 3, '非对象章节被剔除')
+  equal(book.chapters[1].content, '', '缺正文章节补空串，AI 上下文与 diff 不再 TypeError')
+  ok(Number.isFinite(Date.parse(book.chapters[1].updatedAt)), '缺 updatedAt 章节补书级时间，书架排序不再崩')
+  equal(book.chapters[1].id.length > 0, true, '缺章节 ID 重建')
+  equal(book.chapters[2].id.length > 0, true, '空章节 ID 重建')
+  equal(book.lore.map(item => item.title), ['世界'], '坏模式与缺内容的设定被剔除')
+  equal(book.chat.map(item => item.id), ['h1', 'h3'], '坏角色的对话被剔除')
+})
+
+test('normalizeBooks 保留合法章节与历史，存量数据原样加载', () => {
+  const books = normalizeBooks([{
+    id: 'b1', title: '完好书', premise: '概念', updatedAt: '2026-09-20T00:00:00.000Z',
+    chapters: [{ id: 'c1', title: '第一章', outline: '提纲', content: '正文', updatedAt: '2026-09-20T00:00:00.000Z',
+      wordGoal: 2000, history: [{ id: 'v1', title: '第一章', content: '旧稿', savedAt: '2026-09-19T00:00:00.000Z', source: 'manual' }] }],
+    lore: [{ id: 'l1', title: '世界', content: '规则', mode: 'timeline', timeLabel: '第一年' }],
+    chat: [],
+  }])
+  equal(books.length, 1)
+  equal(books[0].chapters[0].wordGoal, 2000, '字数目标保留')
+  equal(books[0].chapters[0].outline, '提纲', '提纲保留')
+  equal(books[0].chapters[0].history?.length, 1, '合法历史保留')
+  equal(books[0].lore[0].timeLabel, '第一年', '时间线标签保留')
+})
+
+test('normalizeBooks 的历史过滤剔除坏版本条目', () => {
+  const books = normalizeBooks([{ id: 'b1', title: '书', chapters: [{ id: 'c1', title: '第一章', content: '正文', history: [
+    { id: 'v1', title: '第一章', content: '旧稿' },
+    { content: '缺标题' },
+    null,
+  ] }] }])
+  equal(books[0].chapters[0].history?.length, 1, '坏历史条目被剔除，版本历史弹窗不再崩')
+})
+
+test('loadData 对章节缺 updatedAt 的损坏键也能正常打开书架', () => {
+  resetCorruptState()
+  localStorage.setItem(MAIN_KEY, JSON.stringify({
+    version: 2,
+    books: [{ id: 'b1', title: '假死书', premise: '', chapters: [{ id: 'c1', title: '第一章', content: '正文' }], lore: [], chat: [], updatedAt: '2026-09-20T00:00:00.000Z' }],
+    model: { baseUrl: '', model: '', apiKey: '' }, stats: { days: [], dailyGoal: 2000 }, notes: [],
+  }))
+  const data = loadData()
+  equal(takeCorruptDataNotice(), null, '缺章节 updatedAt 不算整体损坏')
+  equal(data.books[0].chapters[0].updatedAt, '2026-09-20T00:00:00.000Z', '章节 updatedAt 用书级时间补齐，latestChapter 排序不再崩')
 })
 
 test('正常数据不受影响：不给提示、不产生暂存键', () => {

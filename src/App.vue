@@ -193,7 +193,7 @@
       </div>
     </main>
 
-    <div v-else class="workspace">
+    <div v-else class="workspace" :class="{ focus: focusMode }">
       <aside class="book-rail">
         <div class="rail-heading"><span>我的作品</span><button class="icon-button" aria-label="新建作品" title="新建作品" @click="addBook">＋</button></div>
         <div class="book-list">
@@ -225,13 +225,24 @@
         <main class="editor-area">
           <div class="editor-head">
             <div class="breadcrumbs">{{ book.title }} <span>/</span> {{ chapter?.title }}</div>
-            <div class="editor-tools"><button class="quiet" @click="openProduction">逐章生文</button><button class="quiet" @click="openHistory">版本历史 <span class="count-pill">{{ chapter?.history?.length || 0 }}</span></button><button class="quiet" @click="showPremise = true">故事概念</button><button class="quiet" @click="sideView = 'reference'">作品资料 <span class="count-pill">{{ book.lore.length }}</span></button></div>
+            <div class="editor-tools"><button class="quiet" @click="openFind">查找替换</button><button class="quiet" @click="openProduction">逐章生文</button><button class="quiet" @click="openHistory">版本历史 <span class="count-pill">{{ chapter?.history?.length || 0 }}</span></button><button class="quiet" @click="showPremise = true">故事概念</button><button class="quiet" @click="sideView = 'reference'">作品资料 <span class="count-pill">{{ book.lore.length }}</span></button><span class="font-size-group"><button class="quiet" aria-label="减小正文字号" @click="changeFontSize(-1)">A−</button><small>{{ editorPrefs.fontSize }}</small><button class="quiet" aria-label="增大正文字号" @click="changeFontSize(1)">A＋</button></span><button class="quiet" @click="toggleFocusMode">{{ focusMode ? '退出专注' : '专注模式' }}</button></div>
+          </div>
+          <div v-if="findOpen" class="find-bar">
+            <div class="find-row"><input v-model="findQuery" class="find-input" aria-label="查找内容" placeholder="查找本章内容" @keydown.enter.prevent="nextMatch" @keydown.shift.enter.prevent="prevMatch" @keydown.esc.prevent="closeFind" /><span class="find-count">{{ findStatusText }}</span><button class="quiet" aria-label="上一处" :disabled="!findMatches.length" @click="prevMatch">↑</button><button class="quiet" aria-label="下一处" :disabled="!findMatches.length" @click="nextMatch">↓</button><label class="find-option"><input v-model="findCaseSensitive" type="checkbox" />区分大小写</label><button class="quiet" @click="closeFind">关闭</button></div>
+            <div class="find-row"><input v-model="replaceQuery" class="find-input" aria-label="替换为" placeholder="替换为（留空则删除匹配内容）" @keydown.esc.prevent="closeFind" /><button class="secondary" :disabled="!findMatches.length" @click="replaceCurrentMatch">替换</button><button class="secondary" :disabled="!findMatches.length" @click="replaceAllMatches">全部替换</button></div>
           </div>
           <div v-if="chapter" class="paper">
             <input v-model="chapter.title" class="chapter-title" aria-label="章节标题" placeholder="章节标题" @input="touchChapter" />
-            <div class="paper-meta">{{ countWords(chapter.content) }} 字 <span>·</span> {{ chapter.content ? '继续写下去' : '在这里写下故事的第一句' }}</div>
+            <div class="paper-meta"><span class="goal-chip" :class="{ done: !!chapterWordGoal && countWords(chapter.content) >= chapterWordGoal }">{{ countWords(chapter.content) }} 字<template v-if="chapterWordGoal"> / 目标 {{ chapterWordGoal }}</template></span><span>·</span> {{ chapter.content ? '继续写下去' : '在这里写下故事的第一句' }}<button class="goal-set" @click="toggleGoalEditor">{{ chapterWordGoal ? '修改目标' : '设置字数目标' }}</button></div>
+            <div v-if="chapterWordGoal" class="goal-progress" role="progressbar" :aria-valuenow="chapterGoalPercent" aria-valuemin="0" aria-valuemax="100"><i :style="{ width: chapterGoalPercent + '%' }"></i></div>
+            <div v-if="goalEditing" class="goal-editor"><input v-model.number="goalDraft" type="number" min="0" max="1000000" placeholder="本章目标字数" aria-label="本章目标字数" @keydown.enter.prevent="saveChapterGoal" /><button class="secondary" @click="saveChapterGoal">保存目标</button><button class="quiet" @click="clearChapterGoal">清除</button></div>
             <details class="chapter-outline"><summary>本章提纲 <span>{{ chapter.outline ? '已填写' : '可选' }}</span></summary><textarea v-model="chapter.outline" placeholder="这一章要发生什么？结尾留下什么悬念？" @input="touchChapter" /></details>
-            <textarea v-model="chapter.content" class="manuscript" aria-label="章节正文" placeholder="故事从这里开始……" spellcheck="false" @input="touchChapter" />
+            <textarea ref="manuscriptEl" v-model="chapter.content" class="manuscript" aria-label="章节正文" placeholder="故事从这里开始……" spellcheck="false" :style="{ fontSize: editorPrefs.fontSize + 'px' }" @input="touchChapter" @mouseup="updateSelectionBubble" @keyup="updateSelectionBubble" />
+            <div v-if="selectionBubble" class="selection-bubble" :style="{ top: selectionBubble.top + 'px', left: selectionBubble.left + 'px' }" @mousedown.prevent>
+              <template v-if="selectionBusy"><span class="selection-busy">生成中…</span><button class="quiet" @click="selectionController?.abort()">停止</button></template>
+              <template v-else-if="!selectionCustomOpen"><button v-for="action in selectionActions" :key="action.id" type="button" @click="runSelectionAction(action.id)">{{ action.label }}</button><button class="quiet" aria-label="关闭选区工具" @click="selectionBubble = null">×</button></template>
+              <template v-else><input v-model="selectionInstruction" placeholder="想怎么改？回车执行" aria-label="自定义修改要求" @keydown.enter.prevent="runSelectionAction('custom')" @keydown.esc.prevent="selectionCustomOpen = false" /><button class="primary" @click="runSelectionAction('custom')">执行</button></template>
+            </div>
           </div>
           <div v-else class="empty-main">选择一章，开始写作。</div>
         </main>
@@ -317,6 +328,18 @@
 
     <div v-if="showPremise && book" class="overlay" @click.self="showPremise = false"><section class="modal" role="dialog" aria-modal="true" aria-label="故事概念"><div class="modal-head"><div><small>作品底稿</small><h2>故事概念</h2></div><button class="icon-button" aria-label="关闭" @click="showPremise = false">×</button></div><p class="modal-note">写下核心冲突、人物目标或一句话梗概。创作助手会把它纳入上下文。</p><textarea v-model="book.premise" class="modal-textarea" placeholder="例如：一个不愿成为英雄的人，被迫继承了会吞噬记忆的王国。" /><div class="modal-actions"><button class="primary" @click="showPremise = false">完成</button></div></section></div>
 
+    <div v-if="selectionSuggestion" class="overlay" @click.self="selectionSuggestion = null">
+      <section class="modal preview-modal" role="dialog" aria-modal="true" aria-label="AI 选区修改建议">
+        <div class="modal-head"><div><small>选区修改 · 可先调整</small><h2>{{ selectionSuggestion.label }}建议</h2></div><button class="icon-button" aria-label="关闭" @click="selectionSuggestion = null">×</button></div>
+        <p class="modal-note">采纳后只会替换选中的文字，原稿会先存入版本历史。可以直接修改下方文本再采纳。</p>
+        <TextDiff :before="selectionSuggestion.original" :after="selectionSuggestion.replacement" before-label="原文" after-label="建议" />
+        <label class="selection-suggestion-edit">修改后文字<textarea v-model="selectionSuggestion.replacement" class="preview-textarea" aria-label="可编辑的修改后文字" /></label>
+        <div class="modal-actions"><button class="secondary" @click="selectionSuggestion = null">暂不采纳</button><button class="primary" :disabled="!selectionSuggestion.replacement.trim()" @click="adoptSelectionSuggestion">采纳这段修改 →</button></div>
+      </section>
+    </div>
+
+    <div v-if="toastMessage" class="toast" role="status">{{ toastMessage }}</div>
+
     <div v-if="showLore && book" class="overlay" @click.self="showLore = false">
       <section class="modal lore-modal" role="dialog" aria-modal="true" aria-label="作品资料库">
         <div class="modal-head"><div><small>故事资料</small><h2>作品资料库</h2></div><button class="icon-button" aria-label="关闭" @click="showLore = false">×</button></div>
@@ -384,9 +407,10 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
-import { generateChapterProse, generateDraft, requestChatCompletion } from './ai'
+import { generateChapterProse, generateDraft, refineSelection, requestChatCompletion, type SelectionAction } from './ai'
 import { designFixture } from './design-fixture'
 import TextDiff from './TextDiff.vue'
+import { FONT_SIZE_RANGE, loadEditorPrefs, saveEditorPrefs } from './prefs'
 import { createBook, importBookJson, loadData, now, recordChapterVersion, saveData, uid, type Book, type ChatEntry, type Chapter, type ChapterVersion, type InspirationNote, type LoreMode, type Mode } from './storage'
 import { currentStreak, dateKey, DEFAULT_DAILY_GOAL, heatLevel, monthMatrix, pruneStatsBooks, recordWords, totalsFor, trendSeries } from './stats'
 import { buildBookFromWorkflow, createWorkflowRecord, emptyWorkflow, exportWorkflowArchive, importWorkflowArchive, loadWorkflowArchive, parseChapterPlan, saveWorkflowArchive, workflowPrompt, type WorkflowArchive, type WorkflowDraft, type WorkflowField, type WorkflowRecord } from './workflow'
@@ -610,6 +634,219 @@ function rememberChapterLength() {
   if (chapter.value) chapterLengths.set(chapter.value.id, countWords(chapter.value.content))
 }
 watch(selectedChapterId, rememberChapterLength)
+
+// —— 编辑器增强：查找替换、字数目标、专注模式、字号、划词修改 ——
+const manuscriptEl = ref<HTMLTextAreaElement | null>(null)
+const editorPrefs = ref(loadEditorPrefs())
+const focusMode = ref(false)
+const toastMessage = ref('')
+let toastTimer: ReturnType<typeof setTimeout> | null = null
+function showToast(message: string) {
+  toastMessage.value = message
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => { toastMessage.value = '' }, 2400)
+}
+function changeFontSize(delta: number) {
+  editorPrefs.value.fontSize = Math.min(FONT_SIZE_RANGE.max, Math.max(FONT_SIZE_RANGE.min, editorPrefs.value.fontSize + delta * FONT_SIZE_RANGE.step))
+  saveEditorPrefs(editorPrefs.value)
+}
+function toggleFocusMode() { focusMode.value = !focusMode.value }
+
+const goalEditing = ref(false)
+const goalDraft = ref(0)
+const chapterWordGoal = computed(() => chapter.value?.wordGoal || 0)
+const chapterGoalPercent = computed(() => chapterWordGoal.value ? Math.min(100, Math.round((countWords(chapter.value?.content || '') / chapterWordGoal.value) * 100)) : 0)
+watch(selectedChapterId, () => { goalEditing.value = false; goalDraft.value = chapter.value?.wordGoal || 0; selectionBubble.value = null; selectionSuggestion.value = null })
+function toggleGoalEditor() { goalDraft.value = chapter.value?.wordGoal || 0; goalEditing.value = !goalEditing.value }
+function saveChapterGoal() {
+  if (!chapter.value) return
+  const goal = Math.round(Number(goalDraft.value))
+  chapter.value.wordGoal = Number.isFinite(goal) && goal > 0 ? Math.min(1000000, goal) : undefined
+  goalEditing.value = false
+  touchChapter()
+  showToast(chapter.value.wordGoal ? `本章目标设为 ${chapter.value.wordGoal} 字` : '已清除本章目标')
+}
+function clearChapterGoal() {
+  if (!chapter.value) return
+  chapter.value.wordGoal = undefined
+  goalEditing.value = false
+  touchChapter()
+  showToast('已清除本章目标')
+}
+
+const findOpen = ref(false)
+const findQuery = ref('')
+const replaceQuery = ref('')
+const findCaseSensitive = ref(false)
+const findIndex = ref(0)
+const findMatches = ref<{ start: number; end: number }[]>([])
+function escapeRegExp(text: string): string { return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') }
+watch([findQuery, findCaseSensitive, () => chapter.value?.content], () => {
+  const query = findQuery.value
+  if (!query || !chapter.value) { findMatches.value = []; findIndex.value = 0; return }
+  const regex = new RegExp(escapeRegExp(query), findCaseSensitive.value ? 'g' : 'gi')
+  const matches: { start: number; end: number }[] = []
+  let hit = regex.exec(chapter.value.content)
+  while (hit && matches.length < 500) {
+    matches.push({ start: hit.index, end: hit.index + hit[0].length })
+    if (hit[0].length === 0) regex.lastIndex++
+    hit = regex.exec(chapter.value.content)
+  }
+  findMatches.value = matches
+  if (findIndex.value >= matches.length) findIndex.value = 0
+})
+const findStatusText = computed(() => {
+  if (!findQuery.value.trim()) return '输入要查找的内容'
+  if (!findMatches.value.length) return '没有匹配'
+  return `第 ${findIndex.value + 1} / ${findMatches.value.length} 处`
+})
+function selectMatch(index: number) {
+  const match = findMatches.value[index]
+  const element = manuscriptEl.value
+  if (!match || !element || !chapter.value) return
+  findIndex.value = index
+  element.focus({ preventScroll: true })
+  element.setSelectionRange(match.start, match.end)
+  const lines = chapter.value.content.slice(0, match.start).split('\n').length - 1
+  const totalLines = Math.max(1, chapter.value.content.split('\n').length)
+  element.scrollTop = Math.max(0, Math.round((element.scrollHeight - element.clientHeight) * (lines / totalLines)))
+}
+function nextMatch() { if (findMatches.value.length) selectMatch((findIndex.value + 1) % findMatches.value.length) }
+function prevMatch() { if (findMatches.value.length) selectMatch((findIndex.value - 1 + findMatches.value.length) % findMatches.value.length) }
+function openFind() {
+  findOpen.value = true
+  void nextTick(() => document.querySelector<HTMLInputElement>('.find-bar .find-input')?.focus())
+}
+function closeFind() { findOpen.value = false; findQuery.value = ''; replaceQuery.value = ''; findMatches.value = []; findIndex.value = 0 }
+function replaceCurrentMatch() {
+  const match = findMatches.value[findIndex.value]
+  if (!chapter.value || !match) return
+  chapter.value.content = chapter.value.content.slice(0, match.start) + replaceQuery.value + chapter.value.content.slice(match.end)
+  touchChapter()
+  void nextTick(() => {
+    const index = findMatches.value.findIndex(item => item.start >= match.start)
+    if (findMatches.value.length) selectMatch(index === -1 ? 0 : index)
+  })
+}
+function replaceAllMatches() {
+  if (!chapter.value || !findMatches.value.length) return
+  const count = findMatches.value.length
+  if (!confirm(`将本章 ${count} 处「${findQuery.value}」替换为「${replaceQuery.value || '（空）'}」？`)) return
+  let content = chapter.value.content
+  for (let index = count - 1; index >= 0; index--) {
+    const match = findMatches.value[index]
+    content = content.slice(0, match.start) + replaceQuery.value + content.slice(match.end)
+  }
+  chapter.value.content = content
+  touchChapter()
+  findIndex.value = 0
+  showToast(`已替换 ${count} 处`)
+}
+
+const selectionActions: { id: SelectionAction; label: string }[] = [
+  { id: 'polish', label: '润色' },
+  { id: 'expand', label: '扩写' },
+  { id: 'proofread', label: '纠错' },
+  { id: 'custom', label: '自定义' },
+]
+const selectionBubble = ref<{ top: number; left: number; start: number; end: number; text: string } | null>(null)
+const selectionCustomOpen = ref(false)
+const selectionInstruction = ref('')
+const selectionBusy = ref(false)
+const selectionSuggestion = ref<{ bookId: string; chapterId: string; start: number; end: number; original: string; replacement: string; label: string } | null>(null)
+let selectionController: AbortController | null = null
+/** 用镜像元素测量选区在正文区的像素位置，让气泡贴近选中的文字。 */
+function selectionMirrorPosition(element: HTMLTextAreaElement, start: number, end: number): { top: number; left: number } | null {
+  const mirror = document.createElement('div')
+  const style = getComputedStyle(element)
+  for (const key of ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'padding', 'border', 'width', 'boxSizing', 'whiteSpace', 'overflowWrap', 'wordBreak'] as const) {
+    mirror.style[key] = style[key] as string
+  }
+  mirror.style.position = 'absolute'
+  mirror.style.visibility = 'hidden'
+  mirror.style.top = '0'
+  mirror.style.left = '-9999px'
+  mirror.textContent = element.value.slice(0, start)
+  const marker = document.createElement('span')
+  marker.textContent = element.value.slice(start, end) || '.'
+  mirror.appendChild(marker)
+  document.body.appendChild(mirror)
+  const mirrorRect = mirror.getBoundingClientRect()
+  const markerRect = marker.getBoundingClientRect()
+  const elementRect = element.getBoundingClientRect()
+  document.body.removeChild(mirror)
+  const paper = element.closest('.paper')?.getBoundingClientRect()
+  if (!paper) return null
+  return {
+    top: Math.max(4, markerRect.top - mirrorRect.top + (elementRect.top - paper.top) - 46),
+    left: Math.min(paper.width - 40, Math.max(4, markerRect.left - mirrorRect.left + (elementRect.left - paper.left))),
+  }
+}
+function updateSelectionBubble() {
+  const element = manuscriptEl.value
+  if (!element || screen.value !== 'editor' || !chapter.value) { selectionBubble.value = null; return }
+  const start = element.selectionStart
+  const end = element.selectionEnd
+  if (start === end || selectionBusy.value) { selectionBubble.value = null; return }
+  const position = selectionMirrorPosition(element, start, end)
+  if (!position) { selectionBubble.value = null; return }
+  selectionBubble.value = { ...position, start, end, text: element.value.slice(start, end) }
+}
+async function runSelectionAction(action: SelectionAction) {
+  const bubble = selectionBubble.value
+  if (!bubble || !book.value || !chapter.value || selectionBusy.value) return
+  const instruction = action === 'custom' ? selectionInstruction.value.trim() : ''
+  if (action === 'custom' && !instruction) { showToast('先写下想怎么改'); return }
+  selectionBusy.value = true
+  const requestController = new AbortController()
+  selectionController = requestController
+  try {
+    const replacement = await refineSelection({ model: data.value.model, book: book.value, chapterId: chapter.value.id, action, text: bubble.text, instruction, signal: requestController.signal })
+    if (requestController.signal.aborted) return
+    selectionSuggestion.value = { bookId: book.value.id, chapterId: chapter.value.id, start: bubble.start, end: bubble.end, original: bubble.text, replacement, label: selectionActions.find(item => item.id === action)?.label || 'AI' }
+    selectionBubble.value = null
+    selectionCustomOpen.value = false
+    selectionInstruction.value = ''
+  } catch (error) { if (!requestController.signal.aborted) showToast(error instanceof Error ? error.message : String(error)) }
+  finally { if (selectionController === requestController) { selectionBusy.value = false; selectionController = null } }
+}
+function adoptSelectionSuggestion() {
+  const suggestion = selectionSuggestion.value
+  if (!suggestion || !chapter.value || !book.value) return
+  const content = chapter.value.content
+  if (content.slice(suggestion.start, suggestion.end) !== suggestion.original) {
+    showToast('正文已发生变化，请重新生成或手动修改。')
+    return
+  }
+  const replacement = suggestion.replacement
+  if (!replacement.trim()) return
+  const previous = content.slice(0, suggestion.start) + suggestion.original + content.slice(suggestion.end)
+  recordChapterVersion(chapter.value, 'ai')
+  chapter.value.content = content.slice(0, suggestion.start) + replacement + content.slice(suggestion.end)
+  recordWordDelta('ai', book.value.id, countWords(chapter.value.content) - countWords(previous))
+  chapterLengths.set(chapter.value.id, countWords(chapter.value.content))
+  touchChapter()
+  selectionSuggestion.value = null
+  showToast('已应用这段修改')
+}
+
+function handleEditorShortcuts(event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    if (findOpen.value) { closeFind(); return }
+    if (focusMode.value) { focusMode.value = false; return }
+  }
+  if (screen.value !== 'editor' || !chapter.value) return
+  const key = event.key.toLowerCase()
+  if ((event.ctrlKey || event.metaKey) && key === 's') {
+    event.preventDefault()
+    saveCurrentVersion()
+    showToast('已保存当前版本')
+  }
+  if ((event.ctrlKey || event.metaKey) && key === 'f') {
+    event.preventDefault()
+    openFind()
+  }
+}
 const instruction = ref('')
 const showCreateBook = ref(false)
 const newBookTitle = ref('')
@@ -669,8 +906,19 @@ function flushSave() {
   try { saveData(data.value); saveStatus.value = '已保存在本机' }
   catch { saveStatus.value = '保存失败：请检查浏览器存储空间' }
 }
-onMounted(() => window.addEventListener('beforeunload', flushSave))
-onBeforeUnmount(() => { window.removeEventListener('beforeunload', flushSave); workflowController?.abort(); productionController?.abort(); flushSave() })
+onMounted(() => {
+  window.addEventListener('beforeunload', flushSave)
+  window.addEventListener('keydown', handleEditorShortcuts)
+  rememberChapterLength()
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', flushSave)
+  window.removeEventListener('keydown', handleEditorShortcuts)
+  workflowController?.abort()
+  productionController?.abort()
+  selectionController?.abort()
+  flushSave()
+})
 
 function goShelf() {
   if (screen.value === 'workflow') { flushWorkflowSave(); cancelWorkflowGeneration(); workflowCandidate.value = null }

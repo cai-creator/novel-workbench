@@ -10,6 +10,8 @@ export interface Chapter {
   outline?: string
   content: string
   updatedAt: string
+  /** 本章正文字数目标；不设置时不显示进度。 */
+  wordGoal?: number
   history?: ChapterVersion[]
   proseCandidates?: ChapterProseCandidate[]
   /** 旧版单候选字段，仅用于读取迁移。 */
@@ -229,6 +231,7 @@ export function importBookJson(value: unknown): Book {
       .slice(0, 30).map(version => ({ id: uid(), title: version.title, content: version.content,
         savedAt: version.savedAt, source: version.source })) : []
     const chapter: Chapter = { id, title: item.title, outline: typeof item.outline === 'string' ? item.outline : '', content: item.content, updatedAt, history,
+      wordGoal: typeof item.wordGoal === 'number' && Number.isFinite(item.wordGoal) && item.wordGoal > 0 ? Math.min(1000000, Math.round(item.wordGoal)) : undefined,
       proseCandidates: item.proseCandidates, proseCandidate: item.proseCandidate }
     migrateProseCandidates(chapter)
     for (const candidate of chapter.proseCandidates || []) {

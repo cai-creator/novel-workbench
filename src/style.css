@@ -893,3 +893,39 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .stats-calendar-cell.heat-4 { border-color: #c94065; color: #fff; background: #d64d72; }
 @media (max-width: 900px) { .notes-layout { grid-template-columns: 1fr; } }
 @media (max-width: 600px) { .notes-shell, .stats-shell { width: calc(100% - 22px); padding-top: 14px; } .notes-hero, .stats-hero { padding: 22px; } .notes-composer, .notes-panel, .stats-trend, .stats-calendar { padding: 17px 15px; } .stats-goal { padding: 14px 15px; } .stats-bars { height: 130px; } .stats-bar-col small { display: none; } }
+
+/* 编辑器增强：查找替换、字数目标、划词工具、专注模式、提示条 */
+.find-bar { flex: none; width: min(790px, calc(100% - 74px)); margin: 14px auto 0; padding: 11px 14px; border: 1px solid #e7d3e0; border-radius: 12px; background: #fff8fb; box-shadow: 0 6px 18px #75566a12; }
+.find-row { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.find-row + .find-row { margin-top: 8px; }
+.find-input { flex: 1; min-width: 130px; padding: 7px 11px; border: 1px solid #e5d2e0; border-radius: 8px; background: #fff; font-size: 12px; }
+.find-count { flex: none; min-width: 86px; color: #a86c84; font-size: 10.5px; }
+.find-option { display: flex; align-items: center; gap: 5px; color: #8d7a8d; font-size: 10.5px; white-space: nowrap; }
+.find-bar .quiet { padding: 6px 9px; font-size: 10.5px; }
+.find-bar .secondary { padding: 6px 11px; font-size: 10.5px; }
+.goal-chip { color: #aa969e; }
+.goal-chip.done { color: #3f8a5c; font-weight: 700; }
+.goal-chip.done::after { content: " ✓"; }
+.goal-set { margin-left: 8px; padding: 0; border: 0; color: #b06a86; background: none; font-size: 10px; text-decoration: underline; }
+.goal-progress { width: min(210px, 40%); height: 5px; margin: -18px 0 22px; border-radius: 99px; background: #f3e3ec; overflow: hidden; }
+.goal-progress i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, #7fb98a, #4c9a68); transition: width .3s; }
+.goal-editor { display: flex; align-items: center; gap: 8px; margin: -12px 0 20px; }
+.goal-editor input { width: 150px; padding: 7px 10px; border: 1px solid #e5d2e0; border-radius: 8px; background: #fff; font-size: 12px; }
+.goal-editor .secondary, .goal-editor .quiet { padding: 6px 10px; font-size: 10.5px; }
+.font-size-group { display: inline-flex; align-items: center; gap: 4px; margin-left: 2px; }
+.font-size-group .quiet { padding: 7px 8px; font-size: 10px; }
+.font-size-group small { min-width: 20px; color: #a98ba0; font-size: 9.5px; text-align: center; }
+.selection-bubble { position: absolute; z-index: 5; display: flex; align-items: center; gap: 5px; padding: 6px 8px; border: 1px solid #e7c8d6; border-radius: 10px; background: #fff; box-shadow: 0 10px 24px #6b415733; }
+.selection-bubble button { padding: 5px 10px; border: 1px solid #eed6e1; border-radius: 7px; color: #965c78; background: #fff7fa; font-size: 11px; }
+.selection-bubble button:hover { border-color: #e993aa; background: #ffeef3; }
+.selection-bubble .quiet { color: #a18c9b; }
+.selection-bubble input { width: 170px; padding: 5px 9px; border: 1px solid #eed6e1; border-radius: 7px; font-size: 11px; }
+.selection-busy { color: #a86c84; font-size: 11px; }
+.selection-suggestion-edit { display: block; margin-top: 12px; color: #826678; font-size: 10px; font-weight: 700; }
+.workspace.focus .book-rail, .workspace.focus .chapter-rail, .workspace.focus .assistant { display: none; }
+.workspace.focus .editor-area { background: radial-gradient(circle at 50% 0, #f9e6ec 0, transparent 32%), #f6eff2; }
+.workspace.focus .paper { width: min(760px, calc(100% - 48px)); padding-top: 54px; }
+.toast { position: fixed; left: 50%; bottom: 34px; z-index: 60; transform: translateX(-50%); padding: 10px 20px; border-radius: 999px; color: #fff6f8; background: linear-gradient(120deg, #3a2b44, #5b3450); box-shadow: 0 12px 30px #3a243340; font-size: 12px; letter-spacing: .04em; animation: toast-in .22s ease; }
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@media (max-width: 960px) { .find-bar { width: calc(100% - 36px); } }
+@media (max-width: 600px) { .find-bar { width: calc(100% - 22px); } .goal-progress { width: 60%; } .editor-tools { flex-wrap: wrap; justify-content: flex-end; } }

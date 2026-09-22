@@ -112,3 +112,39 @@ export async function generateChapterProse(args: { model: ModelSettings; book: B
   const prompt = chapterProsePrompt(book, chapterId, instruction, targetLength, kind)
   return requestChatCompletion({ model, system: prompt.system, user: prompt.user, signal, maxTokens: Math.min(6500, Math.max(2400, targetLength * 3)) })
 }
+
+export type SelectionAction = 'polish' | 'expand' | 'proofread' | 'custom'
+
+const SELECTION_TASKS: Record<SelectionAction, string> = {
+  polish: '润色以下文字：保持原意、人物口吻与情节不变，让表达更准确、更有画面感。',
+  expand: '扩写以下文字：补充具体的动作、感官、对话或环境细节，不改变情节走向和结果。',
+  proofread: '校对以下文字：纠正错别字、语法、标点和拗口重复，保持原意与风格。',
+  custom: '按作者的要求修改以下文字，未提及的部分保持原样。',
+}
+
+/** 对正文选区做定向修改，只返回修改后的片段，由界面替换原选区。 */
+export async function refineSelection(args: {
+  model: ModelSettings
+  book: Book
+  chapterId: string
+  action: SelectionAction
+  text: string
+  instruction?: string
+  signal: AbortSignal
+}): Promise<string> {
+  const { model, book, chapterId, action, text, instruction, signal } = args
+  const chapter = book.chapters.find(item => item.id === chapterId)
+  const context = [
+    `作品：《${book.title}》`,
+    book.premise && `故事核心：${book.premise.slice(0, 800)}`,
+    chapter && `当前章节：${chapter.title}`,
+    chapter?.outline?.trim() && `本章提纲：${chapter.outline.slice(0, 500)}`,
+  ].filter(Boolean).join('\n')
+  return requestChatCompletion({
+    model,
+    system: '你是中文小说的细读编辑。只输出修改后的正文片段，不要解释思路、不要标题、不要 Markdown、不要引号。',
+    user: `${context}\n\n${SELECTION_TASKS[action]}\n\n原文：\n${text}${action === 'custom' && instruction?.trim() ? `\n\n作者要求：${instruction.trim().slice(0, 800)}` : ''}`,
+    signal,
+    maxTokens: Math.min(2400, Math.max(600, Math.ceil(text.length * 3))),
+  })
+}

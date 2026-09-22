@@ -674,7 +674,8 @@ export function saveRankStore(store: RankStore): void {
   writeStorage(RANK_STORAGE_KEY, store)
 }
 
-const pruneRankSnapshots = (snapshots: RankSnapshotDoc[]): RankSnapshotDoc[] => {
+/** 保留策略：裁回最近 N 份/120 天，写库与备份覆盖恢复共用同一口径。 */
+export const pruneRankSnapshots = (snapshots: RankSnapshotDoc[]): RankSnapshotDoc[] => {
   const cutoff = localDate(RANK_RETENTION_DAYS)
   const kept = snapshots.filter(item => item.statDate >= cutoff)
   return kept

@@ -35,7 +35,7 @@
           </div>
           <div v-else-if="workflow.step === 2" class="workflow-fields">
             <div class="workflow-field-head"><label for="workflow-title">作品名称</label><button class="secondary" :disabled="workflowBusy" @click="generateWorkflow('title')">✦ AI 取书名</button></div><input id="workflow-title" v-model="workflow.title" maxlength="60" placeholder="先起一个工作书名，随时可以改" />
-            <div class="workflow-field-head"><label for="workflow-outline">故事主线与章节规划</label><span class="workflow-field-tools"><button class="secondary" @click="openBreakdownPicker('outline')">从拆书带入</button><button class="secondary" :disabled="workflowBusy" @click="generateWorkflow('outline')">✦ AI 生成大纲</button></span></div><textarea id="workflow-outline" v-model="workflow.outline" class="workflow-long" placeholder="先写故事主线，再逐行写：第1章｜标题｜具体事件与章节钩子。建书时会识别最多 20 个章节。" />
+            <div class="workflow-field-head"><label for="workflow-outline">故事主线与章节规划</label><span class="workflow-field-tools"><button class="secondary" @click="openBreakdownPicker('outline')">从拆书带入</button><button class="secondary" :disabled="workflowBusy" @click="generateWorkflow('outline')">✦ AI 生成大纲</button></span></div><textarea id="workflow-outline" v-model="workflow.outline" class="workflow-long" placeholder="先写故事主线，再逐行写：第1章｜标题｜具体事件与章节钩子。建书时会识别最多 200 个章节。" />
             <p class="workflow-help">已识别 {{ workflowChapters.length }} 个章节；章节摘要会跟随正文保存，并提供给 AI 写正文时参考。</p>
           </div>
           <div v-else-if="workflow.step === 3" class="workflow-fields">
@@ -473,9 +473,9 @@ import TextDiff from './TextDiff.vue'
 import BreakdownView from './BreakdownView.vue'
 import RankView from './RankView.vue'
 import { breakdownMaterialKinds, breakdownMaterialLabels, countBreakdownMaterials, emptyStore as emptyBreakdownStore, formatBreakdownMaterials, loadBreakdownStore, saveBreakdownStore, type BreakdownMaterialKind, type BreakdownStore } from './breakdown'
-import { emptyRankStore, loadRankStore, saveRankStore } from './rank'
+import { emptyRankStore, loadRankStore, pruneRankSnapshots, saveRankStore } from './rank'
 import { FONT_SIZE_RANGE, loadEditorPrefs, saveEditorPrefs } from './prefs'
-import { createBook, importBookJson, loadData, now, recordChapterVersion, releaseCorruptDataProtection, saveData, takeCorruptDataNotice, uid, type Book, type ChatEntry, type Chapter, type ChapterVersion, type InspirationNote, type LoreMode, type Mode } from './storage'
+import { createBook, importBookJson, loadData, MAX_NOTES, now, recordChapterVersion, releaseCorruptDataProtection, saveData, takeCorruptDataNotice, uid, type Book, type ChatEntry, type Chapter, type ChapterVersion, type InspirationNote, type LoreMode, type Mode } from './storage'
 import { currentStreak, dateKey, heatLevel, monthMatrix, pruneStatsBooks, recordWords, totalsFor, trendSeries } from './stats'
 import { buildBookFromWorkflow, createWorkflowRecord, emptyWorkflow, exportWorkflowArchive, importWorkflowArchive, loadWorkflowArchive, MAX_WORKFLOW_RECORDS, parseChapterPlan, saveWorkflowArchive, workflowPrompt, type WorkflowArchive, type WorkflowDraft, type WorkflowField, type WorkflowRecord } from './workflow'
 import { assertStorageFits, onQuotaWarning } from './quota'
@@ -727,10 +727,17 @@ function saveNote() {
   } else {
     data.value.notes.unshift({ id: uid(), content, tags, pinned: false, createdAt: timestamp, updatedAt: timestamp })
   }
+  // 上限即时生效，不等下次启动的归一化；挤掉最旧的并如实提示
+  if (data.value.notes.length > MAX_NOTES) {
+    const dropped = data.value.notes.length - MAX_NOTES
+    data.value.notes = data.value.notes.slice(0, MAX_NOTES)
+    notesError.value = `灵感库最多保留 ${MAX_NOTES} 条，已清出最旧的 ${dropped} 条。`
+  } else {
+    notesError.value = ''
+  }
   noteDraft.value = ''
   noteTagDraft.value = ''
   editingNoteId.value = ''
-  notesError.value = ''
 }
 function startEditNote(note: InspirationNote) {
   editingNoteId.value = note.id
@@ -1566,7 +1573,8 @@ async function handleBackupImport(event: Event) {
     data.value = backup.data
     try {
       if (backup.workflow) { workflowArchive.value = backup.workflow; saveWorkflowArchive(backup.workflow) }
-      saveRankStore({ ...emptyRankStore(), snapshots: backup.rank?.snapshots || [] })
+      // 覆盖恢复也按保留策略预裁剪：几千份快照的备份不该直接顶穿配额
+      saveRankStore({ ...emptyRankStore(), snapshots: pruneRankSnapshots(backup.rank?.snapshots || []) })
       saveBreakdownStore({ ...emptyBreakdownStore(), projects: backup.breakdown?.projects || [] })
     } catch (error) { persistError = error instanceof Error ? error.message : String(error) }
   } else {

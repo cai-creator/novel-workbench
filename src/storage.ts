@@ -183,11 +183,14 @@ export function normalizeStats(value: unknown): StatsState {
   return state
 }
 
+/** 灵感库上限：写入与读取两侧共用同一口径。 */
+export const MAX_NOTES = 500
+
 export function normalizeNotes(value: unknown): InspirationNote[] {
   if (!Array.isArray(value)) return []
   return value.filter(item => item && typeof item.id === 'string' && typeof item.content === 'string' &&
     typeof item.createdAt === 'string' && Number.isFinite(Date.parse(item.createdAt)))
-    .slice(0, 500)
+    .slice(0, MAX_NOTES)
     .map(item => ({
       id: item.id,
       content: item.content,

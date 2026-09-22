@@ -368,12 +368,20 @@ async function readTxtText(file: File): Promise<string> {
 
 async function importTxt(file: File) {
   listError.value = ''
+  if (file.size > 10 * 1024 * 1024) { listError.value = 'TXT 文件超过 10MB，暂不支持导入。请先分卷处理。'; return }
   try {
     const text = await readTxtText(file)
     if (!text.trim()) throw new Error('文件是空的，没有可拆解的内容')
     const title = file.name.replace(/\.[^.]+$/, '').trim() || '导入拆书'
-    const project = createBreakdownProject(parseTxtBook(text, title))
-    store.value = { ...store.value, projects: [project, ...store.value.projects].slice(0, 30) }
+    const parsed = parseTxtBook(text, title)
+    const project = createBreakdownProject(parsed)
+    const merged = [project, ...store.value.projects].slice(0, 30)
+    const dropped = store.value.projects.length + 1 - merged.length
+    store.value = { ...store.value, projects: merged }
+    let hint = ''
+    if (parsed.chapters.length > project.chapters.length) hint = `章节较多，已截断至前 ${project.chapters.length} 章。`
+    if (dropped > 0) hint += `因拆书库最多保留 30 个项目，已丢弃最旧的 ${dropped} 个项目。`
+    if (hint) { listError.value = hint; workError.value = hint }
     // 落盘失败时留在列表页：错误区能显示原因，也不装作导入成功
     if (!persist()) return
     openProject(project.id)
@@ -391,7 +399,10 @@ function handleTxtChange(event: Event) {
 function handleDrop(event: DragEvent) {
   dragging.value = false
   const file = event.dataTransfer?.files?.[0]
-  if (file) void importTxt(file)
+  if (!file) return
+  // accept 属性只约束文件选择器，拖拽入口要自己验类型
+  if (!/\.(txt|text|md)$/i.test(file.name) && file.type !== 'text/plain') { listError.value = '只支持拖入 TXT 文本文件。'; return }
+  void importTxt(file)
 }
 
 function handleJsonChange(event: Event) {
@@ -400,6 +411,7 @@ function handleJsonChange(event: Event) {
   input.value = ''
   if (!file) return
   listError.value = ''
+  if (file.size > 20 * 1024 * 1024) { listError.value = '文件超过 20MB，暂不支持导入。'; return }
   void file.text().then(text => {
     try {
       const imported = importBreakdownStore(JSON.parse(text))
@@ -407,8 +419,10 @@ function handleJsonChange(event: Event) {
       const fresh = imported.filter(item => !known.has(item.id))
       const skipped = imported.length - fresh.length
       if (!fresh.length) { listError.value = `导入的 ${skipped} 个项目本机都已存在，没有新增。`; return }
-      store.value = { ...store.value, projects: [...fresh, ...store.value.projects].slice(0, 30) }
-      listError.value = skipped ? `已导入 ${fresh.length} 个项目，跳过 ${skipped} 个重复项目。` : ''
+      const merged = [...fresh, ...store.value.projects].slice(0, 30)
+      const dropped = store.value.projects.length + fresh.length - merged.length
+      store.value = { ...store.value, projects: merged }
+      listError.value = `已导入 ${fresh.length} 个项目${skipped ? `，跳过 ${skipped} 个重复` : ''}${dropped ? `；因拆书库最多保留 30 个项目，已丢弃最旧的 ${dropped} 个` : ''}。`
       persist()
     } catch (error) {
       listError.value = error instanceof Error ? error.message : String(error)

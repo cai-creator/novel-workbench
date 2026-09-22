@@ -309,6 +309,7 @@ import {
   rankTagTrends,
   readRankSnapshot,
   removeRankSnapshot,
+  RANK_MAX_SNAPSHOTS,
   saveRankStore,
   toSourceOption,
   writeRankSnapshot,
@@ -582,6 +583,8 @@ function submitPaste(): void {
   const sourceId = currentSourceId.value
   if (sourceId == null) return
   pasteError.value = ''
+  // 粘贴解析是主线程同步操作，超大文本会冻结页面，先挡在入口
+  if (pasteText.value.length > 5 * 1024 * 1024) { pasteError.value = '粘贴内容超过 5MB，请分批导入。'; return }
   try {
     const outcome = importRankPaste(store.value, sourceId, pasteText.value)
     notice.value = outcome.message
@@ -630,10 +633,11 @@ async function handleArchive(event: Event): Promise<void> {
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
+  if (file.size > 20 * 1024 * 1024) { crawlError.value = '文件超过 20MB，暂不支持导入。'; return }
   try {
     const docs = importRankStore(JSON.parse(await file.text()))
     for (const doc of docs) writeRankSnapshot(store.value, doc)
-    notice.value = `已导入 ${docs.length} 份快照`
+    notice.value = `已导入 ${docs.length} 份快照，库内现存 ${store.value.snapshots.length} 份（保留策略 ${RANK_MAX_SNAPSHOTS} 份）`
     persist()
   } catch (error) {
     crawlError.value = error instanceof Error ? error.message : String(error)

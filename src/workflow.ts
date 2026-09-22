@@ -128,6 +128,9 @@ export function importWorkflowArchive(value: unknown): WorkflowRecord[] {
   return records
 }
 
+/** 建书时最多识别的章节数：空章节体量很小，200 章的长篇规划可以完整建进目录 */
+export const MAX_PLAN_CHAPTERS = 200
+
 export function parseChapterPlan(outline: string): { title: string; outline: string }[] {
   const result: { title: string; outline: string }[] = []
   for (const raw of outline.split(/\r?\n/)) {
@@ -136,7 +139,7 @@ export function parseChapterPlan(outline: string): { title: string; outline: str
     if (!match) continue
     const [name, ...details] = match[2].split(/[｜|]/).map(part => part.trim()).filter(Boolean)
     result.push({ title: [match[1], name].filter(Boolean).join(' '), outline: details.join('；') || name || '' })
-    if (result.length === 20) break
+    if (result.length === MAX_PLAN_CHAPTERS) break
   }
   return result
 }

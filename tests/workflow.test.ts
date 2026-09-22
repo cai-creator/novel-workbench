@@ -1,5 +1,5 @@
 import { equal, ok, test, throws } from './harness'
-import { buildBookFromWorkflow, createWorkflowRecord, emptyWorkflow, exportWorkflowArchive, importWorkflowArchive, loadWorkflowArchive, MAX_WORKFLOW_RECORDS, parseChapterPlan, pruneWorkflowRecords, saveWorkflowArchive, workflowPrompt, type WorkflowDraft } from '../src/workflow'
+import { buildBookFromWorkflow, createWorkflowRecord, emptyWorkflow, exportWorkflowArchive, importWorkflowArchive, loadWorkflowArchive, MAX_PLAN_CHAPTERS, MAX_WORKFLOW_RECORDS, parseChapterPlan, pruneWorkflowRecords, saveWorkflowArchive, workflowPrompt, type WorkflowDraft } from '../src/workflow'
 
 const LEGACY_KEY = 'novel-workbench-next/workflow-v1'
 const ARCHIVE_KEY = 'novel-workbench-next/workflow-archive-v2'
@@ -22,11 +22,12 @@ test('parseChapterPlan 解析中文章号、标题与要点', () => {
   equal(plan[3].outline, '', '只有章名时概要为空')
 })
 
-test('parseChapterPlan 跳过无法识别的内容并限制 20 章', () => {
+test('parseChapterPlan 跳过无法识别的内容并限制 200 章', () => {
   equal(parseChapterPlan(''), [], '空大纲没有章节')
   equal(parseChapterPlan('前言\n人物设定\n第一章'), [{ title: '第一章', outline: '' }], '非章节行被跳过')
-  const many = Array.from({ length: 25 }, (_, index) => `第${index + 1}章｜标题${index + 1}`).join('\n')
-  equal(parseChapterPlan(many).length, 20, '最多取前 20 章')
+  const many = Array.from({ length: 260 }, (_, index) => `第${index + 1}章｜标题${index + 1}`).join('\n')
+  equal(parseChapterPlan(many).length, MAX_PLAN_CHAPTERS, `最多取前 ${MAX_PLAN_CHAPTERS} 章`)
+  equal(parseChapterPlan(many)[199].title, '第200章 标题200', '截断发生在 200 章处')
 })
 
 test('buildBookFromWorkflow 把草稿转成作品、设定与章节', () => {

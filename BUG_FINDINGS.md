@@ -63,6 +63,7 @@
 ## P1 逻辑错误
 
 ### P1-1 恢复历史版本后统计数据虚高（手写字数被整段回填）【已实测】
+✅ 已修复（commit 252a777）：restoreVersion 恢复内容后同步刷新 chapterLengths，不再把整段差值误记为手写。
 - 位置：`src/App.vue:1357-1366`（`restoreVersion` 只更新 `content` 与 `updatedAt`，不更新 `chapterLengths`）对比 `src/App.vue:1331-1340`（`touchChapter` 用 `chapterLengths` Map 差值记账，Map 定义在 795 行）。
 - 行为：`chapterLengths` 在打开章节时记录一次（`watch(selectedChapterId, rememberChapterLength)`，App.vue:798），之后只有 `touchChapter` 会更新。用户把章节清空再恢复一个较长历史版本后，Map 里留的是清空时的旧小值；下一次手动敲 1 个字符时 `touchChapter` 算出 `current - 旧小值` 的整段差值，全部记入**当天手写字数**。AI 采纳路径（`adoptProduction`，App.vue:1336）正确更新了 Map，唯独 restoreVersion 漏掉。
 - 复现：建书→写 N 字→存版本→把正文清空→恢复旧版本→再手打 1 字→统计页当天手写字数多出 ≈ N。
@@ -75,11 +76,13 @@
 - 建议：以内容指纹（如 title+idea+updatedAt 组合哈希）去重，或至少对「相同 title+completedAt」提示重复。
 
 ### P1-3 合并恢复时「取较大值」让旧备份的大目标值覆盖当前小目标值
+✅ 已修复（commit 252a777）：合并恢复的 dailyGoal 以当前设备设定为准，不再取较大值。
 - 位置：`src/backup.ts:111`（`mergeStatsKeepLarger` 中 `Math.max(base.dailyGoal, incoming.dailyGoal)`）。
 - 行为：合并模式恢复一份半年前 dailyGoal=5000 的备份，当前是 800/天 → 恢复后目标被悄悄抬到 5000。进度条（App.vue:126 `goalPercent`）随之失真。语义上「保留更大目标」与「保留用户当前设定」正好相反。
 - 同类问题：dailyGoal 只有 dailyGoal 一个字段走 keep-larger，`days` 统计是逐日合并，影响可控，但目标值这一项方向反了。
 
 ### P1-4 榜单快照合并实际会「覆盖」，但恢复提示只报「新增」
+✅ 已修复（commit 252a777）：mergeSideStores 把新增与更新分开计数（updatedRank/updatedBreakdown），恢复提示如实显示「新增 X 份、更新 X 份」。
 - 位置：`src/backup.ts:168-182`（`mergeSideStores` 注释与提示语称「本地已有的不覆盖」）对比 `src/rank.ts:1118-1126`（`mergeRankSnapshots`：同 sourceId+statDate 且 incoming.fetchedAt 更新时**替换**本地快照）。
 - 行为：恢复含更新抓取时间的同日期快照时，本地那份被顶掉；但 `addedRank` 计数按「键集合差」统计（只数新键），被替换的部分不计入 → 恢复完成提示「新增 X 份快照」少报了实际发生的变更。与 backup.ts 的注释承诺矛盾。
 - 同类：breakdown 侧 `mergeBreakdownProjects` 的 added 计数口径需一并核对。

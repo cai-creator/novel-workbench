@@ -1,3 +1,4 @@
+import { markRaw } from 'vue'
 import type { StatsState } from './stats'
 import { emptyStatsState, pruneStats } from './stats'
 import { writeStorage } from './quota'
@@ -236,8 +237,8 @@ export function normalizeBooks(value: unknown): Book[] {
         }
         if (typeof item.wordGoal === 'number' && Number.isFinite(item.wordGoal) && item.wordGoal > 0) chapter.wordGoal = item.wordGoal
         if (Array.isArray(item.history)) {
-          chapter.history = item.history.filter((version: Partial<ChapterVersion>) => version && typeof version === 'object' &&
-            typeof version.content === 'string' && typeof version.title === 'string')
+          chapter.history = markRaw(item.history.filter((version: Partial<ChapterVersion>) => version && typeof version === 'object' &&
+            typeof version.content === 'string' && typeof version.title === 'string'))
         }
         if (item.proseCandidates !== undefined) chapter.proseCandidates = item.proseCandidates as Chapter['proseCandidates']
         if (item.proseCandidate !== undefined) chapter.proseCandidate = item.proseCandidate
@@ -283,12 +284,12 @@ export function migrateProseCandidates(chapter: Chapter): void {
 
 /** 留存章稿，跳过与最新版本相同的内容，并限制浏览器内的历史体积。 */
 export function recordChapterVersion(chapter: Chapter, source: ChapterVersion['source']): ChapterVersion | null {
-  const history = chapter.history ||= []
+  const history = Array.isArray(chapter.history) ? chapter.history : []
   const latest = history[0]
   if (latest?.title === chapter.title && latest.content === chapter.content) return null
   const version: ChapterVersion = { id: uid(), title: chapter.title, content: chapter.content, savedAt: now(), source }
-  history.unshift(version)
-  if (history.length > 30) history.length = 30
+  // markRaw：历史版本入库后不可变，不必进响应式系统。30 版 × 整章内容是 deep watch 逐键追踪的大头，脱离后逐键成本大幅下降
+  chapter.history = markRaw([version, ...history].slice(0, 30))
   return version
 }
 
@@ -335,12 +336,12 @@ export function importBookJson(value: unknown): Book {
     const id = uid()
     const updatedAt = now()
     chapterIds.set(String(item.id), id)
-    const history = Array.isArray(item.history) ? item.history.filter(version => version &&
+    const history = Array.isArray(item.history) ? markRaw(item.history.filter(version => version &&
       typeof version.title === 'string' && typeof version.content === 'string' &&
       typeof version.savedAt === 'string' && Number.isFinite(Date.parse(version.savedAt)) &&
       ['manual', 'ai', 'restore'].includes(version.source))
       .slice(0, 30).map(version => ({ id: uid(), title: version.title, content: version.content,
-        savedAt: version.savedAt, source: version.source })) : []
+        savedAt: version.savedAt, source: version.source }))) : []
     const chapter: Chapter = { id, title: item.title, outline: typeof item.outline === 'string' ? item.outline : '', content: item.content, updatedAt, history,
       wordGoal: typeof item.wordGoal === 'number' && Number.isFinite(item.wordGoal) && item.wordGoal > 0 ? Math.min(1000000, Math.round(item.wordGoal)) : undefined,
       proseCandidates: item.proseCandidates, proseCandidate: item.proseCandidate }

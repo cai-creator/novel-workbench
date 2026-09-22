@@ -451,12 +451,24 @@ export function chapterBreakdownPrompt(params: { bookTitle: string; chapterTitle
 }
 
 /** 全书汇总报告：基于各章拆解产物聚合。 */
+export const REPORT_BRIEF_MAX_CHARS = 300
+export const REPORT_BRIEFS_TOTAL_CHARS = 24000
+
 export function bookReportPrompt(params: { bookTitle: string; chapterBriefs: string[] }): { system: string; user: string } {
+  // 输入预算：单条摘要截断、总量截断，几百章的大书也不会把模型上下文挤爆；收录到哪章如实告知
+  const trimmed = params.chapterBriefs.map(brief => brief.slice(0, REPORT_BRIEF_MAX_CHARS))
+  const kept: string[] = []
+  let used = 0
+  for (const brief of trimmed) {
+    if (kept.length && used + brief.length > REPORT_BRIEFS_TOTAL_CHARS) break
+    kept.push(brief)
+    used += brief.length
+  }
   return {
     system: jsonSystem(promptText.reportShape, promptText.reportNote),
     user: [
       `【书名】${params.bookTitle}`,
-      `【各章拆解摘要】\n${params.chapterBriefs.join('\n')}`,
+      `【各章拆解摘要】\n${kept.join('\n')}${kept.length < trimmed.length ? `\n（因篇幅所限，仅收录前 ${kept.length} / ${trimmed.length} 章的拆解摘要）` : ''}`,
       `【任务】${promptText.reportTask}`,
     ].join('\n\n'),
   }

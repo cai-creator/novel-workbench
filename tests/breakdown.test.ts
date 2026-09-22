@@ -13,6 +13,9 @@ import {
   formatBreakdownMaterials,
   importBreakdownStore,
   loadBreakdownStore,
+  bookReportPrompt,
+  REPORT_BRIEF_MAX_CHARS,
+  REPORT_BRIEFS_TOTAL_CHARS,
   mergeCharacterNames,
   normalizeAnalysis,
   normalizeChapterAnalysis,
@@ -384,6 +387,25 @@ test('buildBreakdownMarkdown 带上按类型分开的素材', () => {
   ok(markdown.includes('- 他（第1章）：从数钟到听钟（全书报告）'), '素材条目带出处')
   const materialSection = markdown.slice(markdown.indexOf('## 分类素材'), markdown.indexOf('## 全书汇总'))
   ok(!materialSection.includes('伏笔'), '伏笔账本不混进素材分组，仍只在全书汇总里')
+})
+
+test('bookReportPrompt 对章节摘要做输入截断并如实标注收录范围', () => {
+  const short = bookReportPrompt({ bookTitle: '小书', chapterBriefs: ['第1章《开篇》：钩子很稳；节奏：快'] })
+  ok(short.user.includes('第1章《开篇》：钩子很稳；节奏：快'), '短摘要原样收录')
+  ok(!short.user.includes('因篇幅所限'), '没有截断时不加标注')
+
+  const longBrief = '长'.repeat(REPORT_BRIEF_MAX_CHARS + 50)
+  const single = bookReportPrompt({ bookTitle: '单章超长', chapterBriefs: [longBrief] })
+  ok(single.user.includes('长'.repeat(REPORT_BRIEF_MAX_CHARS)), '单条摘要按上限截断')
+  ok(!single.user.includes('长'.repeat(REPORT_BRIEF_MAX_CHARS + 10)), '超出部分被裁掉')
+
+  // 90 章 × ~300 字摘要 = 27000 字，超过 24000 的总预算
+  const many = Array.from({ length: 90 }, (_, index) => `第${index + 1}章《章${index}》：${'述'.repeat(REPORT_BRIEF_MAX_CHARS - 20)}`)
+  const capped = bookReportPrompt({ bookTitle: '大部头', chapterBriefs: many })
+  const note = capped.user.match(/因篇幅所限，仅收录前 (\d+) \/ 90 章/)
+  ok(note !== null, '总量超限时截断并标注收录范围')
+  ok(Number(note?.[1]) < 90 && Number(note?.[1]) > 0, '收录数在 1 到 89 之间')
+  ok(!capped.user.includes('第90章'), '未收录的章节不出现在 prompt 里')
 })
 
 runAll('breakdown')

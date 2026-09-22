@@ -1304,11 +1304,12 @@ async function generateProduction() {
   productionController = requestController
   productionBusy.value = true
   productionError.value = ''
+  let truncated = false
   try {
-    const content = await generateChapterProse({ model: data.value.model, book: targetBook, chapterId: targetChapter.id, instruction, targetLength: productionLength.value, kind, signal: requestController.signal })
+    const content = await generateChapterProse({ model: data.value.model, book: targetBook, chapterId: targetChapter.id, instruction, targetLength: productionLength.value, kind, signal: requestController.signal, onTruncated: (message) => { truncated = true; showToast(message) } })
     if (requestController.signal.aborted) return
     if (!data.value.books.some(item => item.id === targetBook.id) || !targetBook.chapters.some(item => item.id === targetChapter.id)) return
-    const candidate = { id: uid(), content, instruction, createdAt: now(), baseUpdatedAt, kind }
+    const candidate = { id: uid(), content, instruction: truncated ? `${instruction ? `${instruction}；` : ''}输出被截断，未写完` : instruction, createdAt: now(), baseUpdatedAt, kind }
     ;(targetChapter.proseCandidates ||= []).unshift(candidate)
     if (selectedBookId.value === targetBook.id && selectedChapterId.value === targetChapter.id) selectProductionCandidate(candidate.id)
     targetBook.updatedAt = now()

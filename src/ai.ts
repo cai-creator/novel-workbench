@@ -21,6 +21,8 @@ export async function requestChatCompletion(args: {
   user: string
   signal: AbortSignal
   maxTokens?: number
+  /** 输出因长度上限被截断但已有可用片段时回调：调用方借此给内容补「未写完」提示。 */
+  onTruncated?: (message: string) => void
 }): Promise<string> {
   const { model, system, user, signal, maxTokens } = args
   if (!model.model.trim()) throw new Error('请先在模型设置中填写模型 ID')
@@ -54,7 +56,10 @@ export async function requestChatCompletion(args: {
   }
   const content = responseText(data?.choices?.[0]?.message?.content).trim()
   if (!content) throw new Error('模型没有返回可用内容。请检查模型 ID 和账户权限。')
-  if (data?.choices?.[0]?.finish_reason === 'length') throw new Error('模型输出被截断。请缩短本次要求后重试，已有草稿不会丢失。')
+  // 截断不整条丢弃：已生成的片段照常返回，是否可用由调用方结合提示判断
+  if (data?.choices?.[0]?.finish_reason === 'length') {
+    args.onTruncated?.('模型输出达到长度上限被截断，已保留未写完的片段。')
+  }
   return content
 }
 
@@ -107,10 +112,10 @@ export function chapterProsePrompt(book: Book, chapterId: string, instruction: s
   }
 }
 
-export async function generateChapterProse(args: { model: ModelSettings; book: Book; chapterId: string; instruction: string; targetLength: number; kind: 'continue' | 'rewrite'; signal: AbortSignal }): Promise<string> {
-  const { model, book, chapterId, instruction, targetLength, kind, signal } = args
+export async function generateChapterProse(args: { model: ModelSettings; book: Book; chapterId: string; instruction: string; targetLength: number; kind: 'continue' | 'rewrite'; signal: AbortSignal; onTruncated?: (message: string) => void }): Promise<string> {
+  const { model, book, chapterId, instruction, targetLength, kind, signal, onTruncated } = args
   const prompt = chapterProsePrompt(book, chapterId, instruction, targetLength, kind)
-  return requestChatCompletion({ model, system: prompt.system, user: prompt.user, signal, maxTokens: Math.min(6500, Math.max(2400, targetLength * 3)) })
+  return requestChatCompletion({ model, system: prompt.system, user: prompt.user, signal, maxTokens: Math.min(6500, Math.max(2400, targetLength * 3)), onTruncated })
 }
 
 export type SelectionAction = 'polish' | 'expand' | 'proofread' | 'custom'

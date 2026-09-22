@@ -1,0 +1,557 @@
+<template>
+  <div class="bd-page">
+    <!-- 项目列表 -->
+    <template v-if="!activeProject">
+      <header class="bd-hero">
+        <small>BOOK BREAKDOWN · 竞品拆书</small>
+        <h1>把别人的好书拆开看</h1>
+        <p>导入整本 TXT，逐章拆解细纲、关键节点、爽点节奏与人物关系；前三章附带黄金三章深拆，全部拆完自动生成全书报告。</p>
+      </header>
+      <div class="bd-layout">
+        <section class="bd-upload" :class="{ over: dragging }" @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false" @drop.prevent="handleDrop">
+          <small>IMPORT</small>
+          <h2>导入一本竞品</h2>
+          <p>把 TXT 文件拖到这里，或点击选择。分卷分章按「第N章 / 第N卷」标题行识别，正文里的回指句不会误切。</p>
+          <button class="primary" type="button" @click="fileInput?.click()">选择 TXT 文件</button>
+          <input ref="fileInput" type="file" accept=".txt,text/plain" hidden @change="handleTxtChange" />
+          <div class="bd-upload-actions">
+            <button class="secondary" type="button" @click="jsonInput?.click()">导入拆书存档</button>
+            <input ref="jsonInput" type="file" accept=".json,application/json" hidden @change="handleJsonChange" />
+          </div>
+          <p v-if="listError" class="bd-error" role="alert">{{ listError }}</p>
+        </section>
+        <section class="bd-list">
+          <div class="bd-list-head">
+            <div><small>YOUR PROJECTS</small><h2>拆书项目 <span>{{ store.projects.length }}</span></h2></div>
+            <button v-if="store.projects.length" class="secondary" type="button" @click="exportAll">导出全部存档</button>
+          </div>
+          <p v-if="!store.projects.length" class="bd-empty"><span>✦</span>还没有拆书项目。导入一本同类型的畅销书，看看它每章在做什么。</p>
+          <article v-for="project in store.projects" :key="project.id" class="bd-card" :class="project.status">
+            <div class="bd-card-top">
+              <h3>{{ project.title }}</h3>
+              <span class="bd-status" :class="project.status">{{ breakdownStatusLabel[project.status] }}</span>
+            </div>
+            <p class="bd-card-meta">{{ project.chapterCount }} 章 · {{ project.wordCount.toLocaleString() }} 字 · 已拆 {{ doneCount(project) }} 章{{ project.characterCount ? ` · ${project.characterCount} 位角色` : '' }}</p>
+            <div class="bd-progress" role="progressbar" :aria-valuenow="project.progress" aria-valuemin="0" aria-valuemax="100"><i :style="{ width: project.progress + '%' }"></i></div>
+            <div class="bd-card-actions">
+              <button class="primary" type="button" @click="openProject(project.id)">打开工作台</button>
+              <button class="secondary" type="button" @click="exportMarkdown(project)">导出 Markdown</button>
+              <button class="secondary" type="button" @click="exportOne(project)">存档 JSON</button>
+              <button class="text-danger" type="button" @click="removeProject(project.id)">删除</button>
+            </div>
+            <time :datetime="project.updateTime">更新于 {{ formatTime(project.updateTime) }}</time>
+          </article>
+        </section>
+      </div>
+    </template>
+
+    <!-- 工作台 -->
+    <template v-else-if="activeChapter">
+      <header class="bd-work-head">
+        <div class="bd-work-title">
+          <button class="secondary" type="button" @click="closeProject">← 全部项目</button>
+          <div><small>BREAKDOWN WORKBENCH</small><h1>{{ activeProject.title }}</h1></div>
+        </div>
+        <p class="bd-work-meta">{{ activeProject.chapterCount }} 章 · {{ activeProject.wordCount.toLocaleString() }} 字 · 已拆 {{ doneCount(activeProject) }} 章{{ activeProject.characterCount ? ` · ${activeProject.characterCount} 位角色` : '' }}</p>
+        <div class="bd-work-actions">
+          <label class="bd-batch">每批<select v-model.number="batchCount" :disabled="running"><option :value="1">1 章</option><option :value="3">3 章</option><option :value="5">5 章</option><option :value="10">10 章</option></select></label>
+          <button class="primary" type="button" :disabled="running || !retryable.length" @click="runBatch(retryable.slice(0, batchCount))">
+            {{ running ? `拆解中 ${activeProject.progress}%` : `拆解 ${Math.min(batchCount, retryable.length)} 章` }}
+          </button>
+          <button v-if="running" class="secondary" type="button" @click="stopRun">停止</button>
+          <button class="secondary" type="button" :disabled="running || reportBusy || !doneCount(activeProject)" @click="generateReport">{{ reportBusy ? '生成中…' : '生成全书报告' }}</button>
+          <button class="secondary" type="button" @click="exportMarkdown(activeProject)">导出 Markdown</button>
+        </div>
+        <p v-if="workError" class="bd-error" role="alert">{{ workError }}</p>
+        <div class="bd-work-progress" role="progressbar" :aria-valuenow="activeProject.progress" aria-valuemin="0" aria-valuemax="100"><i :style="{ width: activeProject.progress + '%' }"></i></div>
+      </header>
+
+      <div class="bd-work-grid">
+        <nav class="bd-chapters" aria-label="章节列表">
+          <button
+            v-for="chapter in activeProject.chapters"
+            :key="chapter.id"
+            type="button"
+            class="bd-chapter"
+            :class="[{ active: chapter.id === activeChapter.id }, chapter.status]"
+            @click="selectedChapterId = chapter.id"
+          >
+            <i class="dot" :class="chapter.status"></i>
+            <span class="bd-chapter-title">{{ chapter.sortNo }}. {{ chapter.title }}</span>
+            <small>{{ chapter.wordCount }} 字</small>
+          </button>
+        </nav>
+
+        <section class="bd-reader">
+          <header class="bd-reader-head">
+            <div><h2>{{ activeChapter.title }}</h2><small>第 {{ activeChapter.sortNo }} 章 · {{ activeChapter.paragraphs.length }} 段{{ activeInsightId !== null ? ` · 高亮节点 ${activeInsightId}` : '' }}</small></div>
+            <button v-if="!running && activeChapter.status !== 'done'" class="secondary" type="button" @click="runBatch([activeChapter])">拆解本章</button>
+          </header>
+          <div class="bd-reader-body">
+            <p
+              v-for="(paragraph, index) in activeChapter.paragraphs"
+              :key="index"
+              class="bd-paragraph"
+              :class="{ highlight: activeInsightId !== null && activeChapter.insightIds[index] === activeInsightId }"
+              @click="toggleInsight(activeChapter.insightIds[index])"
+            >{{ paragraph }}</p>
+          </div>
+          <p v-if="activeChapter.status === 'failed'" class="bd-error" role="alert">{{ activeChapter.errorMessage || '拆解失败，请重试' }}</p>
+        </section>
+
+        <aside class="bd-insight">
+          <header class="bd-insight-head">
+            <strong>解析面板</strong>
+            <small v-if="activeChapter.analysis">节点 {{ activeChapter.analysis.outline.length }} · 细纲已生成</small>
+            <small v-else>尚未拆解</small>
+          </header>
+          <div v-if="!activeChapter.analysis" class="bd-insight-empty">
+            <p>点击「拆解本章」或上方批量拆解，AI 会把本章拆成可学习的结构。</p>
+          </div>
+          <template v-else>
+            <section v-if="activeChapter.analysis.golden" class="bd-golden">
+              <h3>♛ 黄金三章深拆</h3>
+              <dl>
+                <div v-if="activeChapter.analysis.golden.hook300"><dt>前300字钩子</dt><dd>{{ activeChapter.analysis.golden.hook300 }}</dd></div>
+                <div v-if="activeChapter.analysis.golden.characterEstablish"><dt>人设立住判定</dt><dd>{{ activeChapter.analysis.golden.characterEstablish }}</dd></div>
+                <div v-if="activeChapter.analysis.golden.coreDilemma"><dt>核心困境</dt><dd>{{ activeChapter.analysis.golden.coreDilemma }}</dd></div>
+                <div v-for="(anchor, index) in activeChapter.analysis.golden.anchors" :key="index">
+                  <dt>原文锚点</dt>
+                  <dd>「{{ anchor.quote }}」—— {{ anchor.comment }}</dd>
+                </div>
+              </dl>
+            </section>
+            <section v-if="activeChapter.analysis.summary" class="bd-summary">
+              <h3>剧情细纲</h3>
+              <p>{{ activeChapter.analysis.summary }}</p>
+            </section>
+            <section v-if="activeChapter.analysis.outline.length">
+              <h3>关键节点拆解</h3>
+              <button
+                v-for="node in activeChapter.analysis.outline"
+                :key="node.id"
+                type="button"
+                class="bd-node"
+                :class="{ active: node.id === activeInsightId }"
+                @click="activeInsightId = activeInsightId === node.id ? null : node.id"
+              >
+                <span class="bd-node-head"><strong>{{ node.title }}</strong><small>{{ node.range }}</small></span>
+                <span class="bd-node-text">{{ node.text }}</span>
+                <span v-if="node.tags.length" class="bd-node-tags"><em v-for="tag in node.tags" :key="tag.text" :class="tag.tone">{{ tag.text }}</em></span>
+              </button>
+            </section>
+            <section v-if="activeChapter.analysis.rhythm.length">
+              <h3>爽点节奏</h3>
+              <dl class="bd-dims">
+                <div v-for="(item, index) in activeChapter.analysis.rhythm" :key="index"><dt>{{ item.label }}<em v-if="item.value">·{{ item.value }}</em></dt><dd>{{ item.desc }}</dd></div>
+              </dl>
+            </section>
+            <section v-if="activeChapter.analysis.setting.length">
+              <h3>世界观设定</h3>
+              <dl class="bd-dims">
+                <div v-for="(item, index) in activeChapter.analysis.setting" :key="index"><dt>{{ item.name }}<em v-if="item.type">·{{ item.type }}</em></dt><dd>{{ item.desc }}<span v-for="tag in item.tags" :key="tag" class="bd-tag">{{ tag }}</span></dd></div>
+              </dl>
+            </section>
+            <section v-if="activeChapter.analysis.relations.length">
+              <h3>人物关系</h3>
+              <dl class="bd-dims">
+                <div v-for="(item, index) in activeChapter.analysis.relations" :key="index"><dt>{{ item.from }} → {{ item.to }}<em>{{ item.relation }}</em></dt><dd>{{ item.desc }}</dd></div>
+              </dl>
+            </section>
+          </template>
+        </aside>
+      </div>
+    </template>
+
+    <p v-else class="bd-empty"><span>◇</span>这个拆书项目没有可显示的章节。</p>
+
+    <!-- 全书报告 -->
+    <div v-if="showReport && activeProject?.report" class="overlay" @click.self="showReport = false">
+      <section class="modal bd-report" role="dialog" aria-modal="true" aria-label="全书拆书报告">
+        <div class="modal-head"><div><small>BOOK REPORT</small><h2>《{{ activeProject.title }}》全书报告</h2></div><button class="icon-button" aria-label="关闭" @click="showReport = false">×</button></div>
+        <p class="modal-note">基于已拆解的 {{ doneCount(activeProject) }} 章产物聚合。报告随拆书存档一起保存。</p>
+        <div class="bd-report-body">
+          <section v-if="activeProject.report.editorNotes"><h3>编辑手记</h3><p>{{ activeProject.report.editorNotes }}</p></section>
+          <section v-if="activeProject.report.outlineRecovery.length"><h3>大纲反推</h3><ul><li v-for="(item, index) in activeProject.report.outlineRecovery" :key="index"><strong>{{ item.stage }}</strong>（{{ item.chapters }}）目标：{{ item.goal }}<span v-if="item.payoff">；兑现：{{ item.payoff }}</span></li></ul></section>
+          <section v-if="activeProject.report.characterArcs.length"><h3>人物弧线</h3><ul><li v-for="(item, index) in activeProject.report.characterArcs" :key="index"><strong>{{ item.name }}</strong>：{{ item.arc }}</li></ul></section>
+          <section v-if="activeProject.report.foreshadowLedger.length"><h3>伏笔账本</h3><ul><li v-for="(item, index) in activeProject.report.foreshadowLedger" :key="index">第{{ item.plantChapter }}章埋设{{ item.status === 'recovered' ? ` → 第${item.payoffChapter}章回收` : '（未回收）' }}：{{ item.item }}</li></ul></section>
+          <section v-if="activeProject.report.pacingCurve.length"><h3>爽点曲线</h3><ul class="bd-pacing"><li v-for="(item, index) in activeProject.report.pacingCurve" :key="index">第{{ item.chapterNo }}章<em>{{ item.score }} 分</em>{{ item.label }}</li></ul></section>
+          <section v-if="activeProject.report.reusableTechniques.length"><h3>可复用技巧</h3><ol><li v-for="(item, index) in activeProject.report.reusableTechniques" :key="index">{{ item }}</li></ol></section>
+        </div>
+        <div class="modal-actions"><button class="secondary" @click="exportMarkdown(activeProject)">导出 Markdown</button><button class="primary" @click="showReport = false">完成</button></div>
+      </section>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onBeforeUnmount, ref } from 'vue'
+import type { ModelSettings } from './storage'
+import { requestChatCompletion } from './ai'
+import {
+  BREAKDOWN_PROMPT_PARAGRAPH_LIMIT,
+  GOLDEN_CHAPTER_LIMIT,
+  bookReportPrompt,
+  breakdownStatusLabel,
+  buildBreakdownMarkdown,
+  chapterBreakdownPrompt,
+  createBreakdownProject,
+  exportBreakdownStore,
+  extractJsonObject,
+  importBreakdownStore,
+  loadBreakdownStore,
+  mergeCharacterNames,
+  normalizeChapterAnalysis,
+  normalizeReport,
+  parseTxtBook,
+  recalcBreakdownProject,
+  retryableBreakdownChapters,
+  saveBreakdownStore,
+  type BreakdownChapter,
+  type BreakdownProject,
+} from './breakdown'
+
+const props = defineProps<{ model: ModelSettings }>()
+
+const store = ref(loadBreakdownStore())
+const persist = () => saveBreakdownStore(store.value)
+
+const activeId = ref<string | null>(null)
+const activeProject = computed<BreakdownProject | null>(() => store.value.projects.find(item => item.id === activeId.value) || null)
+const selectedChapterId = ref('')
+const activeChapter = computed<BreakdownChapter | null>(() => {
+  const project = activeProject.value
+  if (!project) return null
+  return project.chapters.find(item => item.id === selectedChapterId.value) || project.chapters[0] || null
+})
+const retryable = computed(() => (activeProject.value ? retryableBreakdownChapters(activeProject.value) : []))
+const activeInsightId = ref<number | null>(null)
+
+const dragging = ref(false)
+const listError = ref('')
+const workError = ref('')
+const running = ref(false)
+const reportBusy = ref(false)
+const showReport = ref(false)
+const batchCount = ref(3)
+const controller = ref<AbortController | null>(null)
+const fileInput = ref<HTMLInputElement>()
+const jsonInput = ref<HTMLInputElement>()
+
+const doneCount = (project: BreakdownProject) => project.chapters.filter(item => item.status === 'done').length
+
+/** 点击段落或节点卡：同一节点再点一次取消高亮。 */
+function toggleInsight(id: number | null | undefined) {
+  if (id == null) return
+  activeInsightId.value = activeInsightId.value === id ? null : id
+}
+
+const formatTime = (value: string) => {
+  const date = new Date(value)
+  return Number.isFinite(date.getTime()) ? `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}` : value
+}
+
+const download = (payload: string, filename: string, type: string) => {
+  const url = URL.createObjectURL(new Blob([payload], { type }))
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+const safeName = (title: string) => title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 40) || '拆书'
+
+// ---------------------------------------------------------------------------
+// 项目列表
+// ---------------------------------------------------------------------------
+
+async function readTxtText(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  let encoding: string | null = null
+  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) encoding = 'utf-8'
+  else if (bytes[0] === 0xff && bytes[1] === 0xfe) encoding = 'utf-16le'
+  else if (bytes[0] === 0xfe && bytes[1] === 0xff) encoding = 'utf-16be'
+  try {
+    if (encoding) return new TextDecoder(encoding, { fatal: true }).decode(bytes)
+    try {
+      return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+    } catch {
+      return new TextDecoder('gb18030', { fatal: true }).decode(bytes)
+    }
+  } catch {
+    throw new Error('无法正确读取 TXT 编码，请将原文件另存为 UTF-8 后重新导入')
+  }
+}
+
+async function importTxt(file: File) {
+  listError.value = ''
+  try {
+    const text = await readTxtText(file)
+    if (!text.trim()) throw new Error('文件是空的，没有可拆解的内容')
+    const title = file.name.replace(/\.[^.]+$/, '').trim() || '导入拆书'
+    const project = createBreakdownProject(parseTxtBook(text, title))
+    store.value = { ...store.value, projects: [project, ...store.value.projects].slice(0, 30) }
+    persist()
+    openProject(project.id)
+  } catch (error) {
+    listError.value = error instanceof Error ? error.message : String(error)
+  }
+}
+
+function handleTxtChange(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0]
+  if (file) void importTxt(file)
+  ;(event.target as HTMLInputElement).value = ''
+}
+
+function handleDrop(event: DragEvent) {
+  dragging.value = false
+  const file = event.dataTransfer?.files?.[0]
+  if (file) void importTxt(file)
+}
+
+function handleJsonChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  listError.value = ''
+  void file.text().then(text => {
+    try {
+      const imported = importBreakdownStore(JSON.parse(text))
+      store.value = { ...store.value, projects: [...imported, ...store.value.projects].slice(0, 30) }
+      persist()
+    } catch (error) {
+      listError.value = error instanceof Error ? error.message : String(error)
+    }
+  })
+}
+
+function openProject(id: string) {
+  activeId.value = id
+  selectedChapterId.value = ''
+  activeInsightId.value = null
+  workError.value = ''
+  showReport.value = false
+}
+
+function closeProject() {
+  activeId.value = null
+  showReport.value = false
+}
+
+function removeProject(id: string) {
+  const project = store.value.projects.find(item => item.id === id)
+  if (project && !confirm(`删除《${project.title}》的拆书项目？章节正文与拆解产物会一起删除。`)) return
+  store.value = { ...store.value, projects: store.value.projects.filter(item => item.id !== id) }
+  persist()
+  if (activeId.value === id) activeId.value = null
+}
+
+function exportOne(project: BreakdownProject) {
+  download(exportBreakdownStore({ version: 1, projects: [project] }), `${safeName(project.title)}-拆书存档.json`, 'application/json')
+}
+
+function exportAll() {
+  download(exportBreakdownStore(store.value), `拆书存档-${new Date().toISOString().slice(0, 10)}.json`, 'application/json')
+}
+
+function exportMarkdown(project: BreakdownProject) {
+  const markdown = buildBreakdownMarkdown(project)
+  if (!markdown.trim()) { workError.value = '还没有可导出的拆解内容'; return }
+  download(markdown, `${safeName(project.title)}-拆书报告.md`, 'text/markdown;charset=utf-8')
+}
+
+// ---------------------------------------------------------------------------
+// 拆解引擎
+// ---------------------------------------------------------------------------
+
+onBeforeUnmount(() => controller.value?.abort())
+
+function stopRun() {
+  controller.value?.abort()
+}
+
+async function runBatch(chapters: BreakdownChapter[]) {
+  const project = activeProject.value
+  if (!project || !chapters.length || running.value) return
+  if (!props.model.model.trim()) { workError.value = '请先在右上角模型设置中填写模型 ID'; return }
+  running.value = true
+  workError.value = ''
+  controller.value = new AbortController()
+  const signal = controller.value.signal
+  try {
+    for (const chapter of chapters) {
+      chapter.status = 'processing'
+      chapter.errorMessage = undefined
+      persist()
+      try {
+        const prompt = chapterBreakdownPrompt({
+          bookTitle: project.title,
+          chapterTitle: chapter.title,
+          chapterNo: chapter.sortNo,
+          paragraphs: chapter.paragraphs.slice(0, BREAKDOWN_PROMPT_PARAGRAPH_LIMIT),
+          isGolden: chapter.sortNo <= GOLDEN_CHAPTER_LIMIT,
+        })
+        const raw = await requestChatCompletion({ model: props.model, system: prompt.system, user: prompt.user, signal, maxTokens: 4200 })
+        const { analysis, insightIds } = normalizeChapterAnalysis(extractJsonObject(raw), chapter.paragraphs.length)
+        if (!analysis.summary && !analysis.outline.length) throw new Error('拆解结果缺少细纲与关键节点，请重试')
+        chapter.analysis = analysis
+        chapter.insightIds = insightIds
+        chapter.status = 'done'
+        if (analysis.relations.length) mergeCharacterNames(project, analysis)
+      } catch (error) {
+        chapter.status = 'failed'
+        chapter.errorMessage = error instanceof Error ? error.message : String(error)
+      }
+      recalcBreakdownProject(project)
+      persist()
+      if (signal.aborted) break
+    }
+  } finally {
+    running.value = false
+    controller.value = null
+  }
+}
+
+async function generateReport() {
+  const project = activeProject.value
+  if (!project || reportBusy.value) return
+  if (!props.model.model.trim()) { workError.value = '请先在右上角模型设置中填写模型 ID'; return }
+  reportBusy.value = true
+  workError.value = ''
+  const reportController = new AbortController()
+  try {
+    const briefs: string[] = []
+    for (const chapter of project.chapters.filter(item => item.status === 'done').sort((a, b) => a.sortNo - b.sortNo)) {
+      const analysis = chapter.analysis
+      if (!analysis) continue
+      briefs.push([
+        `第${chapter.sortNo}章《${chapter.title}》：${analysis.summary}`,
+        analysis.rhythm.length ? `节奏：${analysis.rhythm.map(item => `${item.label}${item.value ? `(${item.value})` : ''}`).join('、')}` : '',
+      ].filter(Boolean).join('；'))
+    }
+    if (!briefs.length) throw new Error('还没有已拆解的章节，先拆解后再生成报告')
+    const prompt = bookReportPrompt({ bookTitle: project.title, chapterBriefs: briefs })
+    const raw = await requestChatCompletion({ model: props.model, system: prompt.system, user: prompt.user, signal: reportController.signal, maxTokens: 3600 })
+    const report = normalizeReport(extractJsonObject(raw))
+    if (!report) throw new Error('报告生成结果无法解析，请重试')
+    project.report = report
+    recalcBreakdownProject(project)
+    persist()
+    showReport.value = true
+  } catch (error) {
+    workError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    reportBusy.value = false
+  }
+}
+</script>
+
+<style scoped>
+.bd-page { flex: 1; min-height: 0; overflow-y: auto; padding: 26px 32px 40px; background: radial-gradient(circle at 85% 0, #e7f0e4, transparent 32%), #f5f3f5; }
+.bd-hero { max-width: 860px; }
+.bd-hero small { color: var(--accent); letter-spacing: 3px; font-size: 11px; }
+.bd-hero h1 { margin: 6px 0 8px; font-size: 30px; }
+.bd-hero p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.8; }
+.bd-layout { display: grid; grid-template-columns: 320px 1fr; gap: 22px; margin-top: 22px; align-items: start; }
+.bd-upload { position: sticky; top: 0; padding: 22px; border: 1.5px dashed #cdbfc8; border-radius: 18px; background: var(--paper); text-align: left; }
+.bd-upload.over { border-color: var(--accent); background: #fff5f7; }
+.bd-upload small { color: var(--muted); letter-spacing: 2px; font-size: 10px; }
+.bd-upload h2 { margin: 6px 0 8px; font-size: 19px; }
+.bd-upload p { margin: 0 0 14px; color: var(--muted); font-size: 12px; line-height: 1.8; }
+.bd-upload-actions { margin-top: 10px; }
+.bd-list-head { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 14px; }
+.bd-list-head small { color: var(--muted); letter-spacing: 2px; font-size: 10px; }
+.bd-list-head h2 { margin: 4px 0 0; font-size: 20px; }
+.bd-list-head h2 span { color: var(--accent); }
+.bd-empty { padding: 34px; border: 1px solid var(--line); border-radius: 16px; background: #ffffffb0; color: var(--muted); font-size: 13px; text-align: center; line-height: 2; }
+.bd-empty span { display: block; color: var(--accent); font-size: 18px; }
+.bd-card { padding: 18px 20px; border: 1px solid var(--line); border-radius: 16px; background: #fff; margin-bottom: 14px; }
+.bd-card-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.bd-card-top h3 { margin: 0; font-size: 17px; }
+.bd-status { padding: 3px 10px; border-radius: 99px; font-size: 11px; background: #f1ecf0; color: var(--muted); }
+.bd-status.done { background: #e6f4ea; color: #237a3b; }
+.bd-status.processing { background: #fdf1e3; color: #a4651a; }
+.bd-status.failed { background: #fdeaec; color: #b3283d; }
+.bd-card-meta { margin: 8px 0 10px; color: var(--muted); font-size: 12px; }
+.bd-progress { height: 7px; border-radius: 99px; background: #f0e9ec; overflow: hidden; }
+.bd-progress i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--accent), var(--gold)); transition: width .3s; }
+.bd-card-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 6px; }
+.bd-card time { color: #b3a8b5; font-size: 11px; }
+.bd-error { margin: 10px 0 0; color: #b3283d; font-size: 12px; }
+
+/* 工作台 */
+.bd-work-head { padding: 18px 22px; border: 1px solid var(--line); border-radius: 18px; background: var(--paper); }
+.bd-work-title { display: flex; align-items: center; gap: 16px; }
+.bd-work-title small { color: var(--accent); letter-spacing: 2px; font-size: 10px; }
+.bd-work-title h1 { margin: 3px 0 0; font-size: 22px; }
+.bd-work-meta { margin: 10px 0 12px; color: var(--muted); font-size: 12px; }
+.bd-work-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.bd-batch { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+.bd-batch select { padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.bd-work-progress { height: 6px; margin-top: 12px; border-radius: 99px; background: #f0e9ec; overflow: hidden; }
+.bd-work-progress i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--gold)); transition: width .3s; }
+.bd-work-grid { display: grid; grid-template-columns: 230px minmax(0, 1fr) 340px; gap: 16px; margin-top: 16px; align-items: start; }
+.bd-chapters { max-height: calc(100vh - 210px); overflow-y: auto; padding: 10px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); }
+.bd-chapter { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 10px; border: 0; border-radius: 10px; background: transparent; text-align: left; font-size: 12px; }
+.bd-chapter:hover { background: #f6eff3; }
+.bd-chapter.active { background: #fbe9ee; }
+.bd-chapter-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bd-chapter small { color: #b3a8b5; font-size: 10px; }
+.bd-chapter .dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: #d8ccd4; }
+.bd-chapter .dot.done { background: #43a35c; }
+.bd-chapter .dot.failed { background: #d8455d; }
+.bd-chapter .dot.processing { background: var(--gold); }
+.bd-reader { padding: 18px 22px; border: 1px solid var(--line); border-radius: 16px; background: #fff; }
+.bd-reader-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.bd-reader-head h2 { margin: 0 0 4px; font-size: 17px; }
+.bd-reader-head small { color: var(--muted); font-size: 11px; }
+.bd-reader-body { padding: 6px 0; }
+.bd-paragraph { margin: 0 0 12px; font-size: 13.5px; line-height: 2; text-indent: 2em; border-radius: 6px; transition: background .2s; }
+.bd-paragraph.highlight { background: #fdeef2; box-shadow: 0 0 0 3px #fdeef2; cursor: pointer; }
+.bd-insight { max-height: calc(100vh - 210px); overflow-y: auto; padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--paper); }
+.bd-insight-head { display: flex; justify-content: space-between; align-items: baseline; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.bd-insight-head strong { font-size: 14px; }
+.bd-insight-head small { color: var(--muted); font-size: 11px; }
+.bd-insight-empty { padding: 26px 6px; color: var(--muted); font-size: 12px; line-height: 1.9; text-align: center; }
+.bd-insight h3 { margin: 16px 0 8px; font-size: 13px; }
+.bd-golden { padding: 12px 14px; border-radius: 12px; background: linear-gradient(135deg, #fff8ec, #fdeef2); }
+.bd-golden h3 { margin-top: 0; color: #a4651a; }
+.bd-golden dl, .bd-dims { margin: 0; }
+.bd-golden dl > div, .bd-dims > div { margin-bottom: 10px; }
+.bd-golden dt, .bd-dims dt { color: #6c3554; font-size: 12px; font-weight: 600; }
+.bd-golden dt em, .bd-dims dt em { color: var(--muted); font-style: normal; font-weight: 400; }
+.bd-golden dd, .bd-dims dd { margin: 3px 0 0; color: #4c4351; font-size: 12px; line-height: 1.8; }
+.bd-summary p { margin: 0; padding: 12px 14px; border-radius: 10px; background: #f8f3f6; font-size: 12.5px; line-height: 1.9; }
+.bd-node { display: block; width: 100%; margin-bottom: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; text-align: left; }
+.bd-node.active { border-color: var(--accent); background: #fff5f7; }
+.bd-node-head { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; }
+.bd-node-head small { color: var(--muted); }
+.bd-node-text { display: block; margin: 4px 0; color: #4c4351; font-size: 12px; line-height: 1.7; }
+.bd-node-tags em { margin-right: 5px; padding: 1px 7px; border-radius: 99px; background: #f1ecf0; color: #7d7283; font-size: 10px; font-style: normal; }
+.bd-node-tags em.hot { background: #fdeaec; color: #b3283d; }
+.bd-tag { margin-left: 5px; padding: 1px 7px; border-radius: 99px; background: #f1ecf0; color: #7d7283; font-size: 10px; }
+
+/* 全书报告 */
+.bd-report { width: min(760px, 94vw); max-height: 86vh; overflow-y: auto; }
+.bd-report-body section { margin-bottom: 18px; }
+.bd-report-body h3 { margin: 0 0 8px; font-size: 14px; }
+.bd-report-body p { margin: 0; font-size: 13px; line-height: 1.9; }
+.bd-report-body ul, .bd-report-body ol { margin: 0; padding-left: 20px; font-size: 12.5px; line-height: 1.9; }
+.bd-report-body li { margin-bottom: 5px; }
+.bd-pacing em { margin: 0 6px; padding: 1px 8px; border-radius: 99px; background: #fdeef2; color: #b3283d; font-style: normal; font-size: 11px; }
+
+@media (max-width: 1080px) {
+  .bd-work-grid { grid-template-columns: 200px minmax(0, 1fr); }
+  .bd-insight { grid-column: 1 / -1; max-height: none; }
+}
+@media (max-width: 760px) {
+  .bd-page { padding: 16px 14px 30px; }
+  .bd-layout { grid-template-columns: 1fr; }
+  .bd-upload { position: static; }
+  .bd-work-grid { grid-template-columns: 1fr; }
+  .bd-chapters { max-height: 220px; }
+}
+</style>

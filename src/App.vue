@@ -10,6 +10,7 @@
         <button v-if="screen !== 'workflow'" class="quiet" @click="openWorkflow">工作流建书</button>
         <button v-if="screen !== 'workflow-history'" class="quiet" @click="openWorkflowHistory">建书记录 <span class="top-count">{{ workflowRecordCount }}</span></button>
         <button v-if="book && screen !== 'production'" class="quiet" @click="openProduction">逐章生文 <span class="top-count">{{ productionDoneCount }}/{{ book.chapters.length }}</span></button>
+        <button v-if="screen !== 'breakdown'" class="quiet" @click="screen = 'breakdown'">竞品拆书</button>
         <button v-if="screen !== 'inspiration'" class="quiet" @click="openInspiration">灵感收集 <span class="top-count">{{ data.notes.length }}</span></button>
         <button v-if="screen !== 'stats'" class="quiet" @click="openStats">写作统计</button>
         <button class="quiet" @click="importInput?.click()">导入作品</button>
@@ -143,6 +144,8 @@
         </section>
       </div>
     </main>
+
+    <main v-else-if="screen === 'breakdown'" class="breakdown-page"><BreakdownView :model="data.model" /></main>
 
     <main v-else-if="screen === 'production' && book" class="production-page">
       <div class="production-shell">
@@ -438,6 +441,7 @@ import { generateChapterProse, generateDraft, refineSelection, requestChatComple
 import { BACKUP_SIZE_LIMIT, buildWorkspaceBackup, bookToTxt, chapterToTxt, mergeWorkflowRecords, mergeWorkspaceBackup, parseWorkspaceBackup, safeFileName, serializeWorkspaceBackup } from './backup'
 import { designFixture } from './design-fixture'
 import TextDiff from './TextDiff.vue'
+import BreakdownView from './BreakdownView.vue'
 import { FONT_SIZE_RANGE, loadEditorPrefs, saveEditorPrefs } from './prefs'
 import { createBook, importBookJson, loadData, now, recordChapterVersion, saveData, uid, type Book, type ChatEntry, type Chapter, type ChapterVersion, type InspirationNote, type LoreMode, type Mode } from './storage'
 import { currentStreak, dateKey, DEFAULT_DAILY_GOAL, heatLevel, monthMatrix, pruneStatsBooks, recordWords, totalsFor, trendSeries } from './stats'
@@ -448,7 +452,7 @@ const data = ref(designPreview ? designFixture() : loadData())
 const importInput = ref<HTMLInputElement | null>(null)
 const workflowImportInput = ref<HTMLInputElement | null>(null)
 const previewPanel = designPreview ? new URLSearchParams(location.search).get('panel') : null
-const screen = ref<'shelf' | 'editor' | 'workflow' | 'workflow-history' | 'production' | 'inspiration' | 'stats'>(previewPanel === 'workflow' ? 'workflow' : previewPanel === 'workflow-history' ? 'workflow-history' : previewPanel === 'production' || previewPanel === 'production-compare' ? 'production' : previewPanel === 'inspiration' ? 'inspiration' : previewPanel === 'stats' ? 'stats' : !data.value.books.length || previewPanel === 'shelf' ? 'shelf' : 'editor')
+const screen = ref<'shelf' | 'editor' | 'workflow' | 'workflow-history' | 'production' | 'inspiration' | 'stats' | 'breakdown'>(previewPanel === 'workflow' ? 'workflow' : previewPanel === 'workflow-history' ? 'workflow-history' : previewPanel === 'production' || previewPanel === 'production-compare' ? 'production' : previewPanel === 'inspiration' ? 'inspiration' : previewPanel === 'stats' ? 'stats' : previewPanel === 'breakdown' ? 'breakdown' : !data.value.books.length || previewPanel === 'shelf' ? 'shelf' : 'editor')
 function designWorkflowArchive(): WorkflowArchive {
   const draft = createWorkflowRecord({ ...emptyWorkflow(), step: 2, title: '星门长夜', genre: '东方奇幻', seed: '每个人在成年那天都能看见自己的终局。', idea: '一个看不见终局的少年，被帝国认定为灾厄。他必须在三十天内找出预言失效的原因。', outline: '第1章｜看不见的终局｜成人礼上，主角的命盘一片空白\n第2章｜追捕令｜帝国使者抵达村庄' })
   draft.id = 'design-workflow-draft'

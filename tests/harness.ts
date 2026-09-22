@@ -13,7 +13,7 @@ export function equal<T>(actual: T, expected: T, message = '') {
   const b = JSON.stringify(expected)
   assert(a === b, `${message}\n  期望: ${b}\n  实际: ${a}`)
 }
-export function ok(condition: unknown, message: string) { assert(condition, message) }
+export function ok(condition: unknown, message = '') { assert(condition, message) }
 export function throws(fn: () => unknown, message: string) {
   let failed = false
   try { fn() } catch { failed = true }

@@ -88,6 +88,7 @@
 - 同类：breakdown 侧 `mergeBreakdownProjects` 的 added 计数口径需一并核对。
 
 ### P1-5 `finish_reason: 'length'` 直接整条丢弃，不抢救已返回的片段
+✅ 已修复（commit 84e3ebb）：finish_reason=length 时非空片段照常返回不再丢弃，新增 onTruncated 回调；逐章生文的截断候选在 toast 与候选卡说明中标注「未写完」。
 - 位置：`src/ai.ts:57`。
 - 行为：模型在截断前往往已输出数百分之一的有效正文（尤其 `generateChapterProse` 这类长文任务，上限 6500 tokens ≈ 2000 中文字，见 P3-4）。当前实现把整次调用判为失败、候选不保留，提示语「已有草稿不会丢失」指的是旧候选，新产的截断片段被扔掉。
 - 建议：截断时对已返回内容做 `choices[0].message.content` 抢救（trim 后非空即作为截断候选入库并标注「未写完」）。
@@ -148,6 +149,7 @@
 - 建议：要么放开上限，要么在界面明示「仅导入前 20 章」。
 
 ### P2-4 拆书报告 prompt 无截断，200 章的书极易超上下文
+✅ 已修复（commit 84e3ebb）：bookReportPrompt 单条摘要 300 字、总量 24000 字预算，超限在 prompt 内标注「仅收录前 X / Y 章」。
 - 位置：`src/BreakdownView.vue:500-511`（`generateReport` 把所有 done 章节的 summary+rhythm 拼进 user prompt，`maxTokens: 3600` 限制的是输出）。
 - 行为：200 章 × 每章摘要约 200-400 字 ≈ 40-80K 字符输入，多数 8K/32K 上下文模型直接报 context length 错误，且错误信息对用户没有可操作提示。
 - 对比：章节级拆解有 `BREAKDOWN_PROMPT_PARAGRAPH_LIMIT` 截断（BreakdownView.vue:468），唯独报告没有。

@@ -1,10 +1,33 @@
+import { dateKey, type StatsState } from './stats'
 import type { ProjectData } from './storage'
+
+/** 预览用统计：围绕今天生成两周记录，让日历和趋势图看起来是“正在连载”的状态。 */
+function designStats(): StatsState {
+  const today = new Date()
+  const manualPlan = [0, 320, 1180, 0, 2400, 640, 1520]
+  const aiPlan = [0, 0, 480, 0, 900, 0, 300]
+  const days = []
+  for (let offset = 13; offset >= 0; offset--) {
+    const date = new Date(today.getFullYear(), today.getMonth(), today.getDate() - offset)
+    const seed = ((offset * 7) % 11) % 7
+    const manual = offset === 0 ? 860 : manualPlan[seed]
+    const ai = offset === 0 ? 640 : aiPlan[seed]
+    days.push({ date: dateKey(date), manual, ai, books: { 'design-book': { manual, ai } } })
+  }
+  return { days, dailyGoal: 2000 }
+}
 
 /** 只在开发环境 ?ui-preview=1 使用；不会写入读者的本地作品。 */
 export function designFixture(): ProjectData {
   return {
     version: 1,
     model: { baseUrl: '', model: '', apiKey: '' },
+    stats: designStats(),
+    notes: [
+      { id: 'design-note-1', content: '守夜人交换记忆的代价，是交换者会慢慢忘记自己曾经记住的人。让主角发现：他记得妹妹，是因为有人替他付过代价。', tags: ['悬疑', '核心设定'], pinned: true, createdAt: '2026-09-18T21:12:00.000Z', updatedAt: '2026-09-18T21:12:00.000Z' },
+      { id: 'design-note-2', content: '开场画面：凌晨的便利店，所有人都同时抬头看钟，只有主角在看人。', tags: ['开局'], pinned: false, createdAt: '2026-09-17T09:40:00.000Z', updatedAt: '2026-09-17T09:40:00.000Z' },
+      { id: 'design-note-3', content: '红雨衣女孩每次出现，天气都会变。可以做成“她即异常”的伏笔。', tags: ['人物', '伏笔'], pinned: false, createdAt: '2026-09-16T23:05:00.000Z', updatedAt: '2026-09-16T23:05:00.000Z' },
+    ],
     books: [{
       id: 'design-book',
       title: '夜行者档案',

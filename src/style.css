@@ -29,11 +29,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   position: relative;
   z-index: 2;
   flex: none;
-  height: 72px;
+  min-height: 72px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  padding: 0 28px 0 24px;
+  gap: 10px 16px;
+  padding: 12px 28px 12px 24px;
   color: #fff7f4;
   background: linear-gradient(110deg, #21192e 0%, #34253e 60%, #42283d 100%);
   border-bottom: 1px solid #ffffff18;
@@ -64,7 +66,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 }
 .brand strong { display: block; font-size: 16px; letter-spacing: .08em; white-space: nowrap; }
 .brand small { display: block; color: #d9cbd8; font-size: 10px; letter-spacing: .16em; margin-top: 4px; }
-.top-actions { display: flex; align-items: center; gap: 8px; }
+.top-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; row-gap: 8px; }
 .save-indicator { font-size: 11px; color: #e8d8e0; margin-right: 8px; white-space: nowrap; }
 .save-indicator::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; background: #a9dfba; box-shadow: 0 0 9px #a9dfba88; }
 .quiet, .secondary {
@@ -788,3 +790,106 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .text-diff-copy { min-height: 300px; max-height: 54vh; overflow: auto; padding: 17px; border: 1px solid #eadde4; border-radius: 10px; color: #594a58; background: var(--paper); font-family: "Noto Serif SC", "Songti SC", SimSun, serif; font-size: 13px; line-height: 1.9; white-space: pre-wrap; overflow-wrap: anywhere; }
 .text-diff-copy .text-diff-removed, .text-diff-copy .text-diff-added { border-radius: 2px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
 @media (max-width: 700px) { .text-diff-columns { grid-template-columns: 1fr; } .text-diff-copy { min-height: 170px; max-height: 260px; } }
+
+/* 灵感收集页 */
+.notes-page { flex: 1; min-height: 0; overflow-y: auto; background: radial-gradient(circle at 85% 0, #eceafa, transparent 30%), #f6f2f5; }
+.notes-shell { width: min(1180px, calc(100% - 56px)); margin: 0 auto; padding: 42px 0 72px; }
+.notes-hero { padding: 30px 38px; border: 1px solid #ffffff34; border-radius: 19px; color: #fff9f7; background: radial-gradient(circle at 96% 6%, #6a5aa8, transparent 40%), linear-gradient(115deg, #262038, #453a68); box-shadow: 0 16px 35px #3a305026; }
+.notes-hero small { color: #ffd09f; font-size: 10px; font-weight: 700; letter-spacing: .24em; }
+.notes-hero h1 { margin: 10px 0 6px; font-family: "Noto Serif SC", "Songti SC", SimSun, serif; font-size: clamp(25px, 3vw, 33px); }
+.notes-hero p { margin: 0; color: #e5ddef; font-size: 12px; line-height: 1.8; }
+.notes-layout { display: grid; grid-template-columns: 350px minmax(0, 1fr); gap: 16px; margin-top: 20px; align-items: start; }
+.notes-composer { padding: 24px 26px; border: 1px solid #e6dcf0; border-radius: 16px; background: #fffcfd; box-shadow: 0 10px 30px #4e3a6e14; }
+.notes-composer-head small { color: #8e7bb8; font-size: 10px; font-weight: 700; letter-spacing: .18em; }
+.notes-composer-head h2 { margin: 6px 0 0; color: #4a3557; font-family: "Noto Serif SC", "Songti SC", SimSun, serif; font-size: 21px; }
+.notes-input { width: 100%; min-height: 132px; margin-top: 14px; padding: 13px 15px; border: 1px solid #e6dcec; border-radius: 11px; color: #443a49; background: #fffdfb; font-size: 13px; line-height: 1.9; resize: vertical; }
+.notes-tags-label { display: block; margin-top: 12px; color: #7d6a7c; font-size: 11px; font-weight: 700; }
+.notes-tags-label input { width: 100%; margin-top: 6px; padding: 9px 12px; border: 1px solid #e6dcec; border-radius: 9px; background: #fff; font-size: 12px; }
+.notes-composer-footer { display: flex; align-items: center; gap: 9px; margin-top: 14px; }
+.notes-composer-footer span { margin-right: auto; color: #a596a4; font-size: 10px; }
+.notes-panel { padding: 24px 26px 28px; border: 1px solid #eadde7; border-radius: 16px; background: #fffcfd; box-shadow: 0 10px 30px #73536914; }
+.notes-panel-head { display: flex; align-items: end; justify-content: space-between; gap: 12px; }
+.notes-panel-head small { color: #c86380; font-size: 10px; font-weight: 700; letter-spacing: .18em; }
+.notes-panel-head h2 { margin: 6px 0 0; color: #4f344b; font-family: "Noto Serif SC", "Songti SC", SimSun, serif; font-size: 22px; }
+.notes-panel-head h2 span { margin-left: 5px; color: #c65f7d; font: 700 12px system-ui, sans-serif; }
+.notes-panel-head .secondary { font-size: 11px; }
+.notes-filters { margin: 16px 0 14px; }
+.notes-filters input[type="search"] { width: 100%; padding: 10px 14px; border: 1px solid #e8dce9; border-radius: 10px; background: #fff; font-size: 12px; }
+.notes-tag-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.notes-tag-chips button { padding: 5px 11px; border: 1px solid #e6d8e6; border-radius: 999px; color: #7f6a7e; background: #fff; font-size: 11px; }
+.notes-tag-chips button.active { border-color: #b39ddb; color: #5e35b1; background: #f3edfc; font-weight: 700; }
+.notes-empty { padding: 42px 16px; border: 1px dashed #e3c9d6; border-radius: 12px; color: #a18c9b; font-size: 12px; text-align: center; }
+.notes-empty span { display: block; margin-bottom: 8px; color: #d8a9c4; font-size: 20px; }
+.notes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(235px, 1fr)); gap: 12px; }
+.note-card { display: flex; flex-direction: column; gap: 9px; padding: 15px 16px; border: 1px solid #eee2ea; border-radius: 12px; background: #fff; box-shadow: 0 4px 14px #75566a0d; }
+.note-card.pinned { border-color: #f0d9a8; background: linear-gradient(180deg, #fffaf0, #fff); }
+.note-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.note-pin { padding: 0; border: 0; color: #c9a44e; background: none; font-size: 11px; }
+.note-pin:hover { text-decoration: underline; }
+.note-card-top time { color: #b3a4b0; font-size: 10px; }
+.note-content { margin: 0; color: #4a3d49; font-size: 12.5px; line-height: 1.9; white-space: pre-wrap; overflow-wrap: anywhere; }
+.note-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+.note-tags span { padding: 2px 8px; border-radius: 6px; color: #7c5fa8; background: #f1ebfb; font-size: 10px; }
+.note-actions { display: flex; gap: 6px; margin-top: auto; }
+.note-actions button { padding: 6px 10px; font-size: 10.5px; }
+.note-actions .text-danger { margin-left: auto; }
+.note-picker-list { display: grid; gap: 8px; max-height: 46vh; overflow-y: auto; margin-top: 12px; }
+.note-picker-item { display: grid; gap: 4px; padding: 11px 13px; border: 1px solid #eadde7; border-radius: 10px; color: #4c3f4b; background: #fff; font-size: 12px; line-height: 1.7; text-align: left; }
+.note-picker-item:hover { border-color: #e993aa; background: #fff5f8; }
+.note-picker-item small { color: #9b8aa0; font-size: 10px; }
+
+/* 写作统计页 */
+.stats-page { flex: 1; min-height: 0; overflow-y: auto; background: radial-gradient(circle at 82% 0, #dcebf7, transparent 30%), #f5f2f5; }
+.stats-shell { width: min(1080px, calc(100% - 56px)); margin: 0 auto; padding: 42px 0 72px; }
+.stats-hero { padding: 30px 38px; border: 1px solid #ffffff34; border-radius: 19px; color: #fff9f7; background: radial-gradient(circle at 96% 6%, #3f6d9e, transparent 40%), linear-gradient(115deg, #232a3d, #3b4a68); box-shadow: 0 16px 35px #2e3a5226; }
+.stats-hero small { color: #ffd09f; font-size: 10px; font-weight: 700; letter-spacing: .24em; }
+.stats-hero h1 { margin: 10px 0 6px; font-family: "Noto Serif SC", "Songti SC", SimSun, serif; font-size: clamp(25px, 3vw, 33px); }
+.stats-hero p { margin: 0; color: #d5e0ee; font-size: 12px; line-height: 1.8; }
+.stats-toolbar { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; margin: 20px 0 14px; }
+.stats-book-filter { display: grid; gap: 6px; color: #7d6a7c; font-size: 11px; font-weight: 700; }
+.stats-book-filter select { padding: 9px 12px; border: 1px solid #e8dce9; border-radius: 9px; background: #fff; font-size: 12px; }
+.stats-range { display: flex; gap: 6px; }
+.stats-range button { padding: 8px 13px; border: 1px solid #e8dce9; border-radius: 9px; color: #806778; background: #fff; font-size: 11px; }
+.stats-range button.active { border-color: #9db8d8; color: #3c5f8a; background: #eef4fb; font-weight: 700; }
+.stats-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(195px, 1fr)); gap: 12px; }
+.stats-card { padding: 18px 20px; border: 1px solid #e2dde9; border-radius: 14px; background: #fffcfd; box-shadow: 0 8px 22px #5a547012; }
+.stats-card strong { display: block; color: #33324a; font-family: "Noto Serif SC", "Songti SC", SimSun, serif; font-size: 27px; }
+.stats-card span { display: block; margin-top: 3px; color: #8d8291; font-size: 11.5px; }
+.stats-card small { display: block; margin-top: 7px; color: #b0a0b1; font-size: 10.5px; }
+.stats-goal { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; margin-top: 12px; padding: 16px 20px; border: 1px solid #e2dde9; border-radius: 14px; background: linear-gradient(120deg, #fff7f9, #f2f6fd); }
+.stats-goal-text strong { display: block; color: #4f344b; font-size: 13px; }
+.stats-goal-text span { color: #97798f; font-size: 11px; }
+.stats-progress { flex: 1; min-width: 160px; height: 9px; border-radius: 99px; background: #eee4f0; overflow: hidden; }
+.stats-progress i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--accent), #f09b65); transition: width .3s; }
+.stats-goal-input { display: grid; gap: 5px; color: #7d6a7c; font-size: 10.5px; font-weight: 700; }
+.stats-goal-input input { width: 112px; padding: 8px 10px; border: 1px solid #e8dce9; border-radius: 8px; background: #fff; font-size: 12px; }
+.stats-trend, .stats-calendar { margin-top: 12px; padding: 20px 22px 22px; border: 1px solid #e2dde9; border-radius: 14px; background: #fffcfd; box-shadow: 0 8px 22px #5a547012; }
+.stats-section-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+.stats-section-head h3 { margin: 0; color: #4f344b; font-family: "Noto Serif SC", "Songti SC", SimSun, serif; font-size: 16px; }
+.stats-legend { display: flex; gap: 14px; color: #97798f; font-size: 10.5px; }
+.stats-legend span { display: flex; align-items: center; gap: 5px; }
+.stats-legend i { width: 10px; height: 10px; border-radius: 3px; }
+.stats-legend i.manual { background: #dd5674; }
+.stats-legend i.ai { background: #8f7bd8; }
+.stats-bars { display: flex; align-items: end; gap: 4px; height: 172px; padding-top: 8px; }
+.stats-bar-col { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; padding: 0; border: 0; background: none; }
+.stats-bar-stack { position: relative; flex: 1; width: 100%; max-width: 26px; display: flex; flex-direction: column-reverse; }
+.stats-bar-stack i { display: block; width: 100%; border-radius: 3px 3px 0 0; }
+.stats-bar-stack i.manual { background: linear-gradient(180deg, #ee7189, #dd5674); }
+.stats-bar-stack i.ai { background: linear-gradient(180deg, #a79ae4, #8f7bd8); border-radius: 0 0 3px 3px; }
+.stats-bar-col small { color: #b3a4b0; font-size: 9px; white-space: nowrap; }
+.stats-bar-col:hover .stats-bar-stack i { filter: brightness(1.08); }
+.stats-month-nav { display: flex; align-items: center; gap: 10px; }
+.stats-month-nav button { width: 26px; height: 26px; border: 1px solid #e8dce9; border-radius: 7px; color: #806778; background: #fff; font-size: 12px; }
+.stats-month-nav strong { min-width: 96px; color: #4f344b; font-size: 12.5px; text-align: center; }
+.stats-calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+.stats-calendar-grid em { padding-bottom: 4px; color: #a899a6; font-size: 10px; font-style: normal; text-align: center; }
+.stats-calendar-cell { aspect-ratio: 1; border: 1px solid #f0e6ee; border-radius: 7px; color: #7d6a7c; background: #faf5f8; font-size: 10.5px; }
+.stats-calendar-cell.out { color: #c9bcc7; background: #fdfbfc; }
+.stats-calendar-cell.today { border-color: #dd5674; color: #aa4165; font-weight: 700; }
+.stats-calendar-cell.heat-1 { border-color: #f5cfdd; background: #fbe3ec; }
+.stats-calendar-cell.heat-2 { border-color: #efa9c3; background: #f4c3d6; }
+.stats-calendar-cell.heat-3 { border-color: #e4779a; color: #fff; background: #e88fab; }
+.stats-calendar-cell.heat-4 { border-color: #c94065; color: #fff; background: #d64d72; }
+@media (max-width: 900px) { .notes-layout { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .notes-shell, .stats-shell { width: calc(100% - 22px); padding-top: 14px; } .notes-hero, .stats-hero { padding: 22px; } .notes-composer, .notes-panel, .stats-trend, .stats-calendar { padding: 17px 15px; } .stats-goal { padding: 14px 15px; } .stats-bars { height: 130px; } .stats-bar-col small { display: none; } }

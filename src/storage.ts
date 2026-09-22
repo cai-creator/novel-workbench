@@ -1,3 +1,6 @@
+import type { StatsState } from './stats'
+import { emptyStatsState, pruneStats } from './stats'
+
 export type Mode = 'prose' | 'world' | 'character' | 'plot'
 export type LoreMode = Exclude<Mode, 'prose'> | 'timeline'
 
@@ -65,16 +68,80 @@ export interface ModelSettings {
   apiKey: string
 }
 
+export interface InspirationNote {
+  id: string
+  content: string
+  tags: string[]
+  pinned: boolean
+  createdAt: string
+  updatedAt: string
+}
+
 export interface ProjectData {
-  version: 1
+  version: 1 | 2
   books: Book[]
   model: ModelSettings
+  /** 按天聚合的写作统计；v1 数据读取时补默认值。 */
+  stats: StatsState
+  /** 灵感随手记，可送入建书工作流。 */
+  notes: InspirationNote[]
 }
 
 const STORAGE_KEY = 'novel-workbench-next/v1'
 
 export const uid = () => crypto.randomUUID()
 export const now = () => new Date().toISOString()
+
+export function normalizeStats(value: unknown): StatsState {
+  const state = emptyStatsState()
+  if (!value || typeof value !== 'object') return state
+  const source = value as Partial<StatsState>
+  if (Array.isArray(source.days)) {
+    state.days = source.days.filter(day => day && typeof day.date === 'string' &&
+      Number.isFinite(Date.parse(`${day.date}T00:00:00`)) &&
+      typeof day.manual === 'number' && Number.isFinite(day.manual) &&
+      typeof day.ai === 'number' && Number.isFinite(day.ai))
+      .map(day => ({
+        date: day.date,
+        manual: Math.max(0, Math.round(day.manual)),
+        ai: Math.max(0, Math.round(day.ai)),
+        books: Object.fromEntries(Object.entries(day.books || {})
+          .filter(([, value]) => value && Number.isFinite(value.manual) && Number.isFinite(value.ai))
+          .map(([bookId, value]) => [bookId, { manual: Math.max(0, Math.round(value.manual)), ai: Math.max(0, Math.round(value.ai)) }])),
+      }))
+    pruneStats(state)
+  }
+  if (typeof source.dailyGoal === 'number' && Number.isFinite(source.dailyGoal) && source.dailyGoal > 0) {
+    state.dailyGoal = Math.min(100000, Math.round(source.dailyGoal))
+  }
+  return state
+}
+
+export function normalizeNotes(value: unknown): InspirationNote[] {
+  if (!Array.isArray(value)) return []
+  return value.filter(item => item && typeof item.id === 'string' && typeof item.content === 'string' &&
+    typeof item.createdAt === 'string' && Number.isFinite(Date.parse(item.createdAt)))
+    .slice(0, 500)
+    .map(item => ({
+      id: item.id,
+      content: item.content,
+      tags: Array.isArray(item.tags) ? item.tags.filter((tag: unknown) => typeof tag === 'string' && tag.trim()).slice(0, 12).map((tag: string) => tag.trim().slice(0, 20)) : [],
+      pinned: !!item.pinned,
+      createdAt: item.createdAt,
+      updatedAt: typeof item.updatedAt === 'string' && Number.isFinite(Date.parse(item.updatedAt)) ? item.updatedAt : item.createdAt,
+    }))
+}
+
+export function normalizeProjectData(value: unknown): ProjectData | null {
+  if (!isProjectData(value)) return null
+  return {
+    version: 2,
+    books: value.books,
+    model: value.model,
+    stats: normalizeStats(value.stats),
+    notes: normalizeNotes(value.notes),
+  }
+}
 
 /** 兼容此前的单候选作品，并过滤备份中的无效候选。 */
 export function migrateProseCandidates(chapter: Chapter): void {
@@ -113,12 +180,13 @@ export function createBook(title: string): Book {
 export function loadData(): ProjectData {
   try {
     const parsed: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null')
-    if (isProjectData(parsed)) {
-      for (const book of parsed.books) for (const chapter of book.chapters) migrateProseCandidates(chapter)
-      return parsed
+    const normalized = normalizeProjectData(parsed)
+    if (normalized) {
+      for (const book of normalized.books) for (const chapter of book.chapters) migrateProseCandidates(chapter)
+      return normalized
     }
   } catch { /* 损坏数据保留在浏览器里，避免自动覆盖 */ }
-  return { version: 1, books: [], model: { baseUrl: '', model: '', apiKey: '' } }
+  return { version: 2, books: [], model: { baseUrl: '', model: '', apiKey: '' }, stats: emptyStatsState(), notes: [] }
 }
 
 export function saveData(data: ProjectData): void {
@@ -128,7 +196,7 @@ export function saveData(data: ProjectData): void {
 export function isProjectData(value: unknown): value is ProjectData {
   if (!value || typeof value !== 'object') return false
   const data = value as Partial<ProjectData>
-  return data.version === 1 && Array.isArray(data.books) &&
+  return (data.version === 1 || data.version === 2) && Array.isArray(data.books) &&
     data.books.every(book => typeof book?.id === 'string' && typeof book?.title === 'string' &&
       Array.isArray(book?.chapters) && Array.isArray(book?.lore) && Array.isArray(book?.chat)) &&
     typeof data.model?.baseUrl === 'string' && typeof data.model?.model === 'string' &&

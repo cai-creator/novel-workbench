@@ -9,6 +9,8 @@
         <button v-if="screen !== 'workflow'" class="quiet" @click="openWorkflow">工作流建书</button>
         <button v-if="screen !== 'workflow-history'" class="quiet" @click="openWorkflowHistory">建书记录 <span class="top-count">{{ workflowRecordCount }}</span></button>
         <button v-if="book && screen !== 'production'" class="quiet" @click="openProduction">逐章生文 <span class="top-count">{{ productionDoneCount }}/{{ book.chapters.length }}</span></button>
+        <button v-if="screen !== 'inspiration'" class="quiet" @click="openInspiration">灵感收集 <span class="top-count">{{ data.notes.length }}</span></button>
+        <button v-if="screen !== 'stats'" class="quiet" @click="openStats">写作统计</button>
         <button class="quiet" @click="importInput?.click()">导入作品</button>
         <input ref="importInput" type="file" accept=".json,application/json" hidden @change="handleImport" />
         <button v-if="screen === 'editor'" class="quiet" @click="exportBook" :disabled="!book">导出作品</button>
@@ -24,7 +26,7 @@
           <div class="workflow-card-head"><div><small>第 {{ workflow.step }} 步 / 共 4 步</small><h2>{{ workflowSteps[workflow.step - 1].title }}</h2><p>{{ workflowSteps[workflow.step - 1].description }}</p></div><div class="workflow-card-links"><button class="workflow-reset" @click="openWorkflowHistory">查看记录</button><button class="workflow-reset" @click="startNewWorkflow">保存并新建</button></div></div>
           <div v-if="workflow.step === 1" class="workflow-fields">
             <div class="workflow-field-row"><label>作品类型<input v-model="workflow.genre" placeholder="例如：都市悬疑、玄幻冒险" /></label><label>目标读者<input v-model="workflow.audience" placeholder="例如：喜欢快节奏悬疑的读者" /></label><label>叙事风格<input v-model="workflow.tone" placeholder="例如：克制、诡谲、带少量幽默" /></label></div>
-            <label>原始灵感<textarea v-model="workflow.seed" placeholder="哪怕只有一句话：主角遇到了什么异常？他非解决不可的事是什么？" /></label>
+            <div class="workflow-field-head"><label for="workflow-seed">原始灵感</label><button class="secondary" @click="openNotePicker">从灵感库选择</button></div><textarea id="workflow-seed" v-model="workflow.seed" placeholder="哪怕只有一句话：主角遇到了什么异常？他非解决不可的事是什么？" />
             <div class="workflow-field-head"><label for="workflow-idea">可用创意</label><button class="secondary" :disabled="workflowBusy" @click="generateWorkflow('idea')">✦ AI 完善创意</button></div><textarea id="workflow-idea" v-model="workflow.idea" placeholder="把创意改成你愿意写下去的版本。AI 生成内容需要先预览和采纳。" />
           </div>
           <div v-else-if="workflow.step === 2" class="workflow-fields">
@@ -69,6 +71,77 @@
       </div>
     </main>
 
+    <main v-else-if="screen === 'inspiration'" class="notes-page">
+      <div class="notes-shell">
+        <header class="notes-hero"><small>INSPIRATION · 灵感收集</small><h1>别让好念头溜走</h1><p>随手记下一句话、一个画面或一段对话。日后可以整理、检索，或直接送去建书。</p></header>
+        <div class="notes-layout">
+          <section class="notes-composer">
+            <div class="notes-composer-head"><small>{{ editingNoteId ? 'EDITING' : 'NEW NOTE' }}</small><h2>{{ editingNoteId ? '修改这条灵感' : '记下此刻的念头' }}</h2></div>
+            <textarea v-model="noteDraft" class="notes-input" placeholder="例如：主角每次说谎，口袋里就会多一枚陌生的钥匙。" @keydown.ctrl.enter.prevent="saveNote" />
+            <label class="notes-tags-label" for="note-tags">标签<input id="note-tags" v-model="noteTagDraft" placeholder="用逗号分隔，例如：悬疑，开局" /></label>
+            <div class="notes-composer-footer"><span>Ctrl + Enter 保存</span><button v-if="editingNoteId" class="secondary" @click="cancelEditNote">取消编辑</button><button class="primary" :disabled="!noteDraft.trim()" @click="saveNote">{{ editingNoteId ? '保存修改' : '存入灵感库' }}</button></div>
+            <p v-if="notesError" class="workflow-error" role="alert">{{ notesError }}</p>
+          </section>
+          <section class="notes-panel">
+            <div class="notes-panel-head"><div><small>YOUR NOTES</small><h2>灵感库 <span>{{ filteredNotes.length }}</span></h2></div><button class="secondary" @click="openWorkflow">去建书 →</button></div>
+            <div class="notes-filters">
+              <input v-model="noteQuery" type="search" aria-label="搜索灵感" placeholder="搜索内容或标签" />
+              <div v-if="noteTagList.length" class="notes-tag-chips" role="group" aria-label="标签筛选">
+                <button v-for="tag in noteTagList" :key="tag" type="button" :class="{ active: noteTagFilter === tag }" @click="noteTagFilter = noteTagFilter === tag ? '' : tag">#{{ tag }}</button>
+              </div>
+            </div>
+            <p v-if="!data.notes.length" class="notes-empty"><span>✦</span>灵感库还空着。把突然冒出来的想法先扔进来，建书时再挑。</p>
+            <p v-else-if="!filteredNotes.length" class="notes-empty"><span>◇</span>没有匹配的灵感。换个关键词或清空标签筛选。</p>
+            <div v-else class="notes-grid">
+              <article v-for="note in filteredNotes" :key="note.id" class="note-card" :class="{ pinned: note.pinned }">
+                <div class="note-card-top"><button class="note-pin" type="button" @click="toggleNotePin(note.id)">{{ note.pinned ? '★ 已置顶' : '☆ 置顶' }}</button><time :datetime="note.updatedAt">{{ formatDate(note.updatedAt) }}</time></div>
+                <p class="note-content">{{ note.content }}</p>
+                <div v-if="note.tags.length" class="note-tags"><span v-for="tag in note.tags" :key="tag">#{{ tag }}</span></div>
+                <div class="note-actions"><button class="secondary" @click="startEditNote(note)">编辑</button><button class="secondary" @click="sendNoteToWorkflow(note.id)">送去建书 →</button><button class="text-danger" @click="removeNote(note.id)">删除</button></div>
+              </article>
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+
+    <main v-else-if="screen === 'stats'" class="stats-page">
+      <div class="stats-shell">
+        <header class="stats-hero"><small>WRITING STATS · 写作统计</small><h1>每一页都算数</h1><p>按天记录手写与 AI 采纳的正文字数。数据只保存在本机浏览器。</p></header>
+        <div class="stats-toolbar">
+          <label class="stats-book-filter">作品<select v-model="statsBookFilter"><option value="">全部作品</option><option v-for="item in data.books" :key="item.id" :value="item.id">{{ item.title }}</option></select></label>
+          <div class="stats-range" role="group" aria-label="趋势区间"><button v-for="span in statsSpanOptions" :key="span" type="button" :class="{ active: statsSpan === span }" @click="statsSpan = span">近 {{ span }} 天</button></div>
+        </div>
+        <section class="stats-cards" aria-label="写作概览">
+          <div class="stats-card"><strong>{{ todayStats.total.toLocaleString() }}</strong><span>今日字数</span><small>手写 {{ todayStats.manual.toLocaleString() }} · AI {{ todayStats.ai.toLocaleString() }}</small></div>
+          <div class="stats-card"><strong>{{ statsStreak }}</strong><span>连续写作天数</span><small>{{ statsStreak >= 7 ? '状态正酣' : '再写一天就连起来' }}</small></div>
+          <div class="stats-card"><strong>{{ statsTotals.total.toLocaleString() }}</strong><span>累计字数</span><small>手写 {{ statsTotals.manual.toLocaleString() }} · AI {{ statsTotals.ai.toLocaleString() }}</small></div>
+          <div class="stats-card"><strong>{{ statsAiShare }}%</strong><span>AI 采纳占比</span><small>采纳后计入正文字数</small></div>
+        </section>
+        <section class="stats-goal">
+          <div class="stats-goal-text"><strong>今日目标</strong><span>已完成 {{ todayStats.total.toLocaleString() }} / {{ data.stats.dailyGoal.toLocaleString() }} 字</span></div>
+          <div class="stats-progress" role="progressbar" :aria-valuenow="goalPercent" aria-valuemin="0" aria-valuemax="100"><i :style="{ width: goalPercent + '%' }"></i></div>
+          <label class="stats-goal-input">调整目标<input v-model.number="data.stats.dailyGoal" type="number" min="100" max="100000" step="100" @change="saveStatsGoal" /></label>
+        </section>
+        <section class="stats-trend">
+          <div class="stats-section-head"><h3>近 {{ statsSpan }} 天写作量</h3><div class="stats-legend"><span><i class="manual"></i>手写</span><span><i class="ai"></i>AI 采纳</span></div></div>
+          <div class="stats-bars">
+            <div v-for="point in statsTrend" :key="point.date" class="stats-bar-col" :title="`${point.date}：手写 ${point.manual} 字，AI ${point.ai} 字`">
+              <div class="stats-bar-stack"><i class="ai" :style="{ height: barHeight(point.ai) + '%' }"></i><i class="manual" :style="{ height: barHeight(point.manual) + '%' }"></i></div>
+              <small>{{ point.date.slice(5).replace('-', '/') }}</small>
+            </div>
+          </div>
+        </section>
+        <section class="stats-calendar">
+          <header class="stats-section-head"><h3>写作日历</h3><div class="stats-month-nav"><button type="button" aria-label="上个月" @click="shiftStatsMonth(-1)">←</button><strong>{{ calendarTitle }}</strong><button type="button" aria-label="下个月" @click="shiftStatsMonth(1)">→</button></div></header>
+          <div class="stats-calendar-grid">
+            <em v-for="label in weekdayLabels" :key="label">{{ label }}</em>
+            <button v-for="cell in calendarCells" :key="cell.date" type="button" class="stats-calendar-cell" :class="['heat-' + heatLevel(cell.total), { out: !cell.inMonth, today: cell.isToday }]" :title="`${cell.date} · ${cell.total} 字`">{{ Number(cell.date.slice(8)) }}</button>
+          </div>
+        </section>
+      </div>
+    </main>
+
     <main v-else-if="screen === 'production' && book" class="production-page">
       <div class="production-shell">
         <header class="production-hero"><div><small>CHAPTER STUDIO · {{ book.title }}</small><h1>把章纲写成故事</h1><p>按章节生成可编辑的候选稿。每章都由你审阅并采纳，正文才会更新。</p></div><button class="secondary" @click="screen = 'editor'">返回写作 →</button></header>
@@ -99,7 +172,7 @@
       <div class="shelf-inner">
         <section class="shelf-hero">
           <div><small>我的连载书房</small><h1>每一个故事，都有下一章。</h1><p>在这里整理作品，随时回到最近写下的那一章。</p>
-            <div class="shelf-hero-actions"><button class="primary large" @click="openWorkflow">✦ 工作流建书</button><button class="shelf-import" @click="openWorkflowHistory">建书记录 →</button><button class="shelf-import" @click="addBook">手动创建 →</button><button class="shelf-import" @click="importInput?.click()">导入已有作品 →</button></div>
+            <div class="shelf-hero-actions"><button class="primary large" @click="openWorkflow">✦ 工作流建书</button><button class="shelf-import" @click="openWorkflowHistory">建书记录 →</button><button class="shelf-import" @click="openInspiration">灵感收集 →</button><button class="shelf-import" @click="openStats">写作统计 →</button><button class="shelf-import" @click="addBook">手动创建 →</button><button class="shelf-import" @click="importInput?.click()">导入已有作品 →</button></div>
           </div>
           <div class="shelf-hero-art" aria-hidden="true"><span>故</span><span>事</span><span>未</span><span>完</span></div>
         </section>
@@ -293,6 +366,18 @@
       <p class="modal-note">模型生成结果不会自动覆盖草稿。你可以直接修改下方文本，再决定是否采纳。</p><textarea v-model="workflowCandidate.text" class="preview-textarea" aria-label="建书候选内容" /><div class="modal-actions"><button class="secondary" @click="workflowCandidate = null">暂不采纳</button><button class="primary" :disabled="!workflowCandidate.text.trim()" @click="adoptWorkflowCandidate">采纳到草稿</button></div>
     </section></div>
 
+    <div v-if="showNotePicker" class="overlay" @click.self="showNotePicker = false">
+      <section class="modal preview-modal" role="dialog" aria-modal="true" aria-label="从灵感库选择">
+        <div class="modal-head"><div><small>INSPIRATION</small><h2>从灵感库选择</h2></div><button class="icon-button" aria-label="关闭" @click="showNotePicker = false">×</button></div>
+        <p class="modal-note">点击一条灵感填入原始灵感，之后仍可自由修改。</p>
+        <input v-model="notePickerQuery" type="search" aria-label="搜索灵感" placeholder="搜索内容或标签" />
+        <div class="note-picker-list">
+          <button v-for="note in pickerNotes" :key="note.id" type="button" class="note-picker-item" @click="pickNoteForSeed(note.id)"><span>{{ note.content }}</span><small v-if="note.tags.length">{{ note.tags.map(tag => `#${tag}`).join(' ') }}</small></button>
+          <p v-if="!pickerNotes.length" class="muted">灵感库是空的。可以先在「灵感收集」页记下一条。</p>
+        </div>
+      </section>
+    </div>
+
     <div v-if="preview" class="overlay" @click.self="preview = null"><section class="modal preview-modal" role="dialog" aria-modal="true" aria-label="预览 AI 内容"><div class="modal-head"><div><small>先审阅，再落稿</small><h2>预览并采纳</h2></div><button class="icon-button" aria-label="关闭" @click="preview = null">×</button></div><p class="modal-note">你可以先修改生成内容。只有点击采纳，内容才会进入作品。</p><label v-if="preview.mode !== 'prose'">设定标题<input v-model="preview.title" placeholder="给这条设定起名" /></label><label v-else>写入位置<select v-model="preview.insert"><option value="append">追加到本章末尾</option><option value="replace">替换本章正文</option></select></label><textarea v-model="preview.content" class="preview-textarea" aria-label="生成内容" /><div class="modal-actions"><button class="secondary" @click="preview = null">暂不采纳</button><button class="primary" :disabled="!preview.content.trim()" @click="adoptPreview">采纳到作品</button></div></section></div>
   </div>
 </template>
@@ -302,7 +387,8 @@ import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { generateChapterProse, generateDraft, requestChatCompletion } from './ai'
 import { designFixture } from './design-fixture'
 import TextDiff from './TextDiff.vue'
-import { createBook, importBookJson, loadData, now, recordChapterVersion, saveData, uid, type Book, type ChatEntry, type ChapterVersion, type LoreMode, type Mode } from './storage'
+import { createBook, importBookJson, loadData, now, recordChapterVersion, saveData, uid, type Book, type ChatEntry, type Chapter, type ChapterVersion, type InspirationNote, type LoreMode, type Mode } from './storage'
+import { currentStreak, dateKey, DEFAULT_DAILY_GOAL, heatLevel, monthMatrix, pruneStatsBooks, recordWords, totalsFor, trendSeries } from './stats'
 import { buildBookFromWorkflow, createWorkflowRecord, emptyWorkflow, exportWorkflowArchive, importWorkflowArchive, loadWorkflowArchive, parseChapterPlan, saveWorkflowArchive, workflowPrompt, type WorkflowArchive, type WorkflowDraft, type WorkflowField, type WorkflowRecord } from './workflow'
 
 const designPreview = import.meta.env.DEV && new URLSearchParams(location.search).has('ui-preview')
@@ -310,7 +396,7 @@ const data = ref(designPreview ? designFixture() : loadData())
 const importInput = ref<HTMLInputElement | null>(null)
 const workflowImportInput = ref<HTMLInputElement | null>(null)
 const previewPanel = designPreview ? new URLSearchParams(location.search).get('panel') : null
-const screen = ref<'shelf' | 'editor' | 'workflow' | 'workflow-history' | 'production'>(previewPanel === 'workflow' ? 'workflow' : previewPanel === 'workflow-history' ? 'workflow-history' : previewPanel === 'production' || previewPanel === 'production-compare' ? 'production' : !data.value.books.length || previewPanel === 'shelf' ? 'shelf' : 'editor')
+const screen = ref<'shelf' | 'editor' | 'workflow' | 'workflow-history' | 'production' | 'inspiration' | 'stats'>(previewPanel === 'workflow' ? 'workflow' : previewPanel === 'workflow-history' ? 'workflow-history' : previewPanel === 'production' || previewPanel === 'production-compare' ? 'production' : previewPanel === 'inspiration' ? 'inspiration' : previewPanel === 'stats' ? 'stats' : !data.value.books.length || previewPanel === 'shelf' ? 'shelf' : 'editor')
 function designWorkflowArchive(): WorkflowArchive {
   const draft = createWorkflowRecord({ ...emptyWorkflow(), step: 2, title: '星门长夜', genre: '东方奇幻', seed: '每个人在成年那天都能看见自己的终局。', idea: '一个看不见终局的少年，被帝国认定为灾厄。他必须在三十天内找出预言失效的原因。', outline: '第1章｜看不见的终局｜成人礼上，主角的命盘一片空白\n第2章｜追捕令｜帝国使者抵达村庄' })
   draft.id = 'design-workflow-draft'
@@ -410,6 +496,120 @@ const modes: { id: Mode; label: string; title: string; description: string; plac
 const modeHint = computed(() => modes.find(item => item.id === mode.value) || modes[0])
 const modeLabel = (value: Mode) => modes.find(item => item.id === value)?.label || value
 const countWords = (text: string) => [...(text || '').replace(/\s/g, '')].length
+
+// —— 灵感收集 ——
+const noteDraft = ref('')
+const noteTagDraft = ref('')
+const noteQuery = ref('')
+const noteTagFilter = ref('')
+const editingNoteId = ref('')
+const notesError = ref('')
+const showNotePicker = ref(false)
+const notePickerQuery = ref('')
+const noteTagList = computed(() => [...new Set(data.value.notes.flatMap(item => item.tags))].slice(0, 24))
+const filteredNotes = computed(() => {
+  const query = noteQuery.value.trim().toLocaleLowerCase()
+  return data.value.notes
+    .filter(item => (!noteTagFilter.value || item.tags.includes(noteTagFilter.value)) &&
+      (!query || item.content.toLocaleLowerCase().includes(query) || item.tags.some(tag => tag.toLocaleLowerCase().includes(query))))
+    .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt.localeCompare(a.updatedAt))
+})
+const pickerNotes = computed(() => {
+  const query = notePickerQuery.value.trim().toLocaleLowerCase()
+  return data.value.notes
+    .filter(item => !query || item.content.toLocaleLowerCase().includes(query) || item.tags.some(tag => tag.toLocaleLowerCase().includes(query)))
+    .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt.localeCompare(a.updatedAt))
+})
+function parseNoteTags(text: string): string[] {
+  return [...new Set(text.split(/[,，、;；\s#]+/).map(tag => tag.trim()).filter(Boolean))].slice(0, 8).map(tag => tag.slice(0, 20))
+}
+function saveNote() {
+  const content = noteDraft.value.trim()
+  if (!content) return
+  const tags = parseNoteTags(noteTagDraft.value)
+  const timestamp = now()
+  if (editingNoteId.value) {
+    const note = data.value.notes.find(item => item.id === editingNoteId.value)
+    if (!note) { notesError.value = '要编辑的灵感已不存在，已退出编辑。'; cancelEditNote(); return }
+    note.content = content
+    note.tags = tags
+    note.updatedAt = timestamp
+  } else {
+    data.value.notes.unshift({ id: uid(), content, tags, pinned: false, createdAt: timestamp, updatedAt: timestamp })
+  }
+  noteDraft.value = ''
+  noteTagDraft.value = ''
+  editingNoteId.value = ''
+  notesError.value = ''
+}
+function startEditNote(note: InspirationNote) {
+  editingNoteId.value = note.id
+  noteDraft.value = note.content
+  noteTagDraft.value = note.tags.join('，')
+  notesError.value = ''
+}
+function cancelEditNote() { editingNoteId.value = ''; noteDraft.value = ''; noteTagDraft.value = '' }
+function toggleNotePin(id: string) {
+  const note = data.value.notes.find(item => item.id === id)
+  if (note) { note.pinned = !note.pinned; note.updatedAt = now() }
+}
+function removeNote(id: string) {
+  if (!confirm('删除这条灵感？此操作无法撤销。')) return
+  data.value.notes = data.value.notes.filter(item => item.id !== id)
+  if (editingNoteId.value === id) cancelEditNote()
+}
+function sendNoteToWorkflow(id: string) {
+  const note = data.value.notes.find(item => item.id === id)
+  if (!note) return
+  startNewWorkflow()
+  workflow.value.seed = note.content
+  workflow.value.step = 1
+  workflowError.value = ''
+}
+function openNotePicker() { notePickerQuery.value = ''; showNotePicker.value = true }
+function pickNoteForSeed(id: string) {
+  const note = data.value.notes.find(item => item.id === id)
+  if (!note) return
+  workflow.value.seed = note.content
+  showNotePicker.value = false
+}
+function openInspiration() { screen.value = 'inspiration' }
+
+// —— 写作统计 ——
+const statsSpanOptions = [7, 15, 30] as const
+const statsSpan = ref<number>(7)
+const statsBookFilter = ref('')
+const statsMonth = ref({ year: new Date().getFullYear(), month: new Date().getMonth() })
+const weekdayLabels = ['一', '二', '三', '四', '五', '六', '日']
+const statsFilter = computed(() => statsBookFilter.value || undefined)
+const todayStats = computed(() => trendSeries(data.value.stats.days, new Date(), 1, statsFilter.value)[0])
+const statsTrend = computed(() => trendSeries(data.value.stats.days, new Date(), statsSpan.value, statsFilter.value))
+const statsTrendMax = computed(() => Math.max(500, ...statsTrend.value.map(point => point.total)))
+const barHeight = (value: number) => Math.round((value / statsTrendMax.value) * 100)
+const statsStreak = computed(() => currentStreak(data.value.stats.days, new Date(), statsFilter.value))
+const statsTotals = computed(() => totalsFor(data.value.stats.days, statsFilter.value))
+const statsAiShare = computed(() => statsTotals.value.total ? Math.round((statsTotals.value.ai / statsTotals.value.total) * 100) : 0)
+const goalPercent = computed(() => Math.min(100, Math.round((todayStats.value.total / data.value.stats.dailyGoal) * 100)))
+const calendarCells = computed(() => monthMatrix(data.value.stats.days, statsMonth.value.year, statsMonth.value.month, new Date(), statsFilter.value).flat())
+const calendarTitle = computed(() => `${statsMonth.value.year} 年 ${statsMonth.value.month + 1} 月`)
+function shiftStatsMonth(delta: number) {
+  const cursor = new Date(statsMonth.value.year, statsMonth.value.month + delta, 1)
+  statsMonth.value = { year: cursor.getFullYear(), month: cursor.getMonth() }
+}
+function saveStatsGoal() {
+  const goal = Math.round(Number(data.value.stats.dailyGoal))
+  data.value.stats.dailyGoal = Number.isFinite(goal) ? Math.min(100000, Math.max(100, goal)) : DEFAULT_DAILY_GOAL
+}
+function openStats() { screen.value = 'stats' }
+function recordWordDelta(source: 'manual' | 'ai', bookId: string, chars: number) {
+  if (chars > 0) recordWords(data.value.stats, { date: dateKey(new Date()), bookId, source, chars })
+}
+/** 记录每章已统计的正文字数，手写增量在 touchChapter 中按差值记账。 */
+const chapterLengths = new Map<string, number>()
+function rememberChapterLength() {
+  if (chapter.value) chapterLengths.set(chapter.value.id, countWords(chapter.value.content))
+}
+watch(selectedChapterId, rememberChapterLength)
 const instruction = ref('')
 const showCreateBook = ref(false)
 const newBookTitle = ref('')
@@ -697,7 +897,10 @@ function adoptProduction() {
   if (!content) return
   if (productionInsert.value === 'replace' && chapter.value.content.trim() && !confirm('确定替换本章现有正文吗？原稿会先保存到版本历史。')) return
   if (chapter.value.content.trim()) recordChapterVersion(chapter.value, 'ai')
+  const previousContent = chapter.value.content
   chapter.value.content = productionInsert.value === 'replace' ? content : [chapter.value.content.trimEnd(), content].filter(Boolean).join('\n\n')
+  recordWordDelta('ai', book.value.id, countWords(chapter.value.content) - (productionInsert.value === 'replace' ? 0 : countWords(previousContent)))
+  chapterLengths.set(chapter.value.id, countWords(chapter.value.content))
   chapter.value.proseCandidates = chapter.value.proseCandidates?.filter(item => item.id !== candidate.id)
   const nextCandidateId = chapter.value.proseCandidates?.[0]?.id || ''
   selectedCandidateId.value = nextCandidateId
@@ -709,6 +912,10 @@ function adoptProduction() {
 }
 function touchChapter() {
   if (!chapter.value || !book.value) return
+  const current = countWords(chapter.value.content)
+  const previous = chapterLengths.get(chapter.value.id)
+  if (previous !== undefined && current > previous) recordWordDelta('manual', book.value.id, current - previous)
+  chapterLengths.set(chapter.value.id, current)
   const timestamp = now()
   chapter.value.updatedAt = timestamp
   book.value.updatedAt = timestamp
@@ -755,6 +962,8 @@ function createAndOpenBook() {
 function removeBook() {
   if (!book.value || !confirm(`确定删除《${book.value.title}》及全部章节和设定吗？此操作无法撤销。建议先导出作品。`)) return
   data.value.books = data.value.books.filter(item => item.id !== selectedBookId.value)
+  pruneStatsBooks(data.value.stats, new Set(data.value.books.map(item => item.id)))
+  if (statsBookFilter.value && !data.value.books.some(item => item.id === statsBookFilter.value)) statsBookFilter.value = ''
   selectBook(data.value.books[0]?.id || '')
 }
 function addChapter() {
@@ -817,7 +1026,10 @@ function adoptPreview() {
     if (!target) { aiError.value = '原章节已不存在，请重新生成。'; return }
     if (draft.insert === 'replace' && target.content.trim() && !confirm('确定替换本章现有正文吗？')) return
     if (target.content.trim()) recordChapterVersion(target, 'ai')
+    const previousContent = target.content
     target.content = draft.insert === 'replace' ? content : [target.content.trimEnd(), content].filter(Boolean).join('\n\n')
+    recordWordDelta('ai', targetBook.id, countWords(target.content) - (draft.insert === 'replace' ? 0 : countWords(previousContent)))
+    chapterLengths.set(target.id, countWords(target.content))
     target.updatedAt = now()
     targetBook.updatedAt = target.updatedAt
     selectedBookId.value = targetBook.id

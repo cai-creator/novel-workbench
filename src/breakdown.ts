@@ -698,6 +698,13 @@ export function normalizeProject(value: unknown): BreakdownProject | null {
   return project
 }
 
+/** 归一化全库不便宜：组件每次挂载都重读一遍纯属浪费，同版本数据复用缓存 */
+let breakdownStoreCache: BreakdownStore | null = null
+export function loadBreakdownStoreCached(): BreakdownStore {
+  breakdownStoreCache ||= loadBreakdownStore()
+  return breakdownStoreCache
+}
+
 export function loadBreakdownStore(): BreakdownStore {
   try {
     const parsed: unknown = JSON.parse(localStorage.getItem(BREAKDOWN_STORAGE_KEY) || 'null')
@@ -711,6 +718,7 @@ export function loadBreakdownStore(): BreakdownStore {
 
 export function saveBreakdownStore(store: BreakdownStore): void {
   writeStorage(BREAKDOWN_STORAGE_KEY, { version: 1, projects: store.projects.slice(0, BREAKDOWN_MAX_PROJECTS) })
+  breakdownStoreCache = store
 }
 
 export function exportBreakdownStore(store: BreakdownStore): string {

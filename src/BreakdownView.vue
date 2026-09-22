@@ -236,7 +236,7 @@ import {
   emptyStore,
   formatBreakdownMaterials,
   importBreakdownStore,
-  loadBreakdownStore,
+  loadBreakdownStoreCached,
   mergeCharacterNames,
   normalizeChapterAnalysis,
   normalizeReport,
@@ -254,7 +254,7 @@ const props = defineProps<{ model: ModelSettings; dataEpoch?: number }>()
 
 const designPreview = import.meta.env.DEV && new URLSearchParams(location.search).has('ui-preview')
 // 设计预览下不读不写真实 localStorage，避免预览操作污染本机数据
-const store = ref(designPreview ? emptyStore() : loadBreakdownStore())
+const store = ref(designPreview ? emptyStore() : loadBreakdownStoreCached())
 /** 统一落盘：配额等写失败由 quota 模块广播告警，这里再落到页面错误区，不再让异常乱飞 */
 const persist = (): boolean => {
   if (designPreview) return true
@@ -269,7 +269,7 @@ const persist = (): boolean => {
 
 /** 备份恢复后重新读盘：本地存储已被 App 改写，内存里的旧项目要作废 */
 watch(() => props.dataEpoch, () => {
-  store.value = loadBreakdownStore()
+  store.value = loadBreakdownStoreCached()
   if (!store.value.projects.some(item => item.id === activeId.value)) activeId.value = store.value.projects[0]?.id || null
 })
 

@@ -674,8 +674,16 @@ export function loadRankStore(): RankStore {
   return emptyRankStore()
 }
 
+/** 归一化全库不便宜（4MB 库实测 ~27ms）：组件每次挂载都重读一遍纯属浪费，同版本数据复用缓存 */
+let rankStoreCache: RankStore | null = null
+export function loadRankStoreCached(): RankStore {
+  rankStoreCache ||= loadRankStore()
+  return rankStoreCache
+}
+
 export function saveRankStore(store: RankStore): void {
   writeStorage(RANK_STORAGE_KEY, store)
+  rankStoreCache = store
 }
 
 /** 保留策略：裁回最近 N 份/120 天，写库与备份覆盖恢复共用同一口径。 */

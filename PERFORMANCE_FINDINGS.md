@@ -30,3 +30,20 @@
 ✅ P-9 已修复（commit ba29e35）：历史列表字数走 wordOf（version.id + 内容命中）。
 🔶 P-1 部分缓解（commit ba29e35 + 0ee8ff0）：重列表绑定全部缓存化 + 历史脱离响应式后，真实逐键成本约 4.4ms（微任务法实测）；单组件拆分未做，若未来模板继续膨胀再评估。
 🔶 P-10 维持现状：榜单/拆书库本就按需加载（切换视图才读），主数据归一化实测 25ms 属可接受冷启动成本，慢设备收益有限不值得引入复杂度。
+
+## 第二轮扫描（修复循环后再查）
+
+逐点复查 10 个区域（同步计时，方法同前），结论如下：
+
+| 区域 | 实测 | 结论 |
+|---|---|---|
+| 视图切换重载 4.4MB 榜单库 | 每次挂载 JSON.parse 6.7ms + 归一化 27ms | ✅ 已修复：loadRankStoreCached/loadBreakdownStoreCached，写库即刷新缓存，切换视图零重复解析 |
+| 拆书库切换同理 | 同上 | ✅ 已修复（同批） |
+| parseTxtBook 3.1MB TXT | 79.6ms 同步（10MB 闸内最坏约 250ms） | 🔶 维持现状：只在导入瞬间发生，有明确闸门与截断提示；分片改造收益不成比例 |
+| rankLatest 关键词检索（400 份快照） | 0.08ms | 健康 |
+| rankLatestAll 多源聚合（400 份） | 0.22ms | 健康 |
+| rankSnapshotDistribution | 0.01ms | 健康 |
+| buildBreakdownMarkdown 200 章 | 0.12ms | 健康 |
+| collectBreakdownMaterials 200 章 | 0.24ms | 健康 |
+| exportWorkflowArchive / pruneWorkflowRecords | 0.08 / 0.04ms | 健康 |
+| 竞品表 50×61 DOM 单元 | 约 3000 节点，切屏才渲染，ID 已封顶 50 | 🔶 接受：表格为按需渲染的低频路径，虚拟化收益不足 |

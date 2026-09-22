@@ -941,3 +941,128 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .backup-modes strong { display: block; color: #6b4356; font-size: 12px; }
 .backup-modes small { display: block; margin-top: 2px; color: #987889; font-size: 11px; line-height: 1.6; }
 .backup-notice { margin: 10px 0 0; padding: 9px 12px; border: 1px solid #cfe4d2; border-radius: 9px; background: #f2faf4; color: #3f7a52; font-size: 12px; line-height: 1.6; }
+
+/* ===== 移动端专门适配（≤600px）：顶栏收进菜单、侧栏改成横向滑动、触控目标放大 ===== */
+.top-menu-toggle {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  margin-left: auto;
+  padding: 9px 14px;
+  border: 1px solid #ffffff33;
+  border-radius: 11px;
+  color: #fff2f4;
+  background: #ffffff1a;
+  font-size: 12px;
+  font-weight: 700;
+}
+.top-menu-icon { position: relative; display: block; width: 15px; height: 2px; border-radius: 2px; background: currentColor; }
+.top-menu-icon::before, .top-menu-icon::after { content: ""; position: absolute; left: 0; width: 15px; height: 2px; border-radius: 2px; background: currentColor; transition: transform .18s, top .18s; }
+.top-menu-icon::before { top: -5px; }
+.top-menu-icon::after { top: 5px; }
+.top-menu-icon.open { background: transparent; }
+.top-menu-icon.open::before { top: 0; transform: rotate(45deg); }
+.top-menu-icon.open::after { top: 0; transform: rotate(-45deg); }
+/* 平板宽度：控件放到触控友好的尺寸，布局沿用既有响应式规则。 */
+@media (max-width: 960px) {
+  .icon-button { width: 38px; height: 38px; }
+  .primary, .secondary { min-height: 40px; }
+  .editor-tools .quiet, .find-bar .quiet, .find-bar .secondary, .goal-editor .quiet, .goal-editor .secondary { min-height: 38px; }
+  .goal-set, .adopt-link, .note-pin, .workflow-reset, .workflow-delete, .production-delete, .text-danger, .shelf-import, .reference-list-head button { display: inline-flex; align-items: center; min-height: 32px; }
+  .workflow-history-filters button, .stats-range button, .notes-tag-chips button { min-height: 38px; }
+  .stats-month-nav button, .reference-card > button, .reference-list-head button, .production-existing summary { display: inline-flex; align-items: center; min-height: 34px; }
+  .backup-modes input, .find-option input { width: 18px; height: 18px; flex: none; }
+  .note-actions .secondary, .note-actions .text-danger { min-height: 38px; }
+}
+@media (max-width: 600px) {
+  .app-shell { min-height: 100dvh; }
+  .topbar { gap: 8px; padding: 10px 12px; }
+  .brand-button { gap: 9px; }
+  .brand-mark { width: 34px; height: 34px; border-radius: 11px; font-size: 15px; }
+  .brand-button strong { font-size: 14px; }
+  .brand-button small { display: none; }
+  .save-indicator { display: none; }
+  .top-menu-toggle { display: inline-flex; }
+  .top-actions {
+    display: none;
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 12px;
+    left: 12px;
+    z-index: 30;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    padding: 10px;
+    border: 1px solid #ffffff2b;
+    border-radius: 15px;
+    background: linear-gradient(165deg, #2f2440, #3d2c48);
+    box-shadow: 0 24px 48px #1a112899;
+  }
+  .top-actions.open { display: flex; }
+  .top-actions .quiet { min-height: 44px; padding: 10px 14px; font-size: 12.5px; text-align: left; }
+  .top-actions .top-count { margin-left: auto; }
+
+  .workspace { grid-template-columns: minmax(0, 1fr); min-height: auto; }
+  .book-rail, .chapter-rail, .editor-area, .assistant, .welcome { grid-column: 1; }
+  .book-rail { grid-row: 1; padding: 10px 12px 2px; }
+  .chapter-rail { grid-row: 2; max-height: none; padding: 0 12px 6px; }
+  .editor-area { grid-row: 3; min-height: 62dvh; }
+  .assistant { grid-row: 4; height: 66dvh; }
+  .book-list, .chapter-list { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 6px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .book-list::-webkit-scrollbar, .chapter-list::-webkit-scrollbar { display: none; }
+  .book-item { flex: none; }
+  .chapter-item { flex: none; min-width: 142px; min-height: 54px; }
+  .chapter-add { margin: 0 0 4px; min-height: 44px; }
+  .rail-heading { height: 44px; padding: 0 2px; }
+  .rail-bottom { padding: 8px 2px; }
+  .rail-bottom button { min-height: 34px; }
+
+  .editor-head { height: auto; flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 12px; }
+  .editor-tools { flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+  .editor-tools::-webkit-scrollbar { display: none; }
+  .editor-tools .quiet { flex: none; min-height: 42px; padding: 9px 12px; font-size: 11.5px; }
+  .font-size-group .quiet { min-height: 42px; }
+  .paper { width: calc(100% - 20px); min-height: auto; margin: 12px auto 26px; padding: 26px 18px 30px; }
+  .paper-meta { flex-wrap: wrap; gap: 4px; }
+  .goal-progress { width: 100%; }
+  .find-bar { position: sticky; top: 0; z-index: 6; width: calc(100% - 20px); margin-top: 10px; }
+  .find-input { min-width: 0; min-height: 42px; }
+  .find-count { min-width: 0; }
+  .find-bar .quiet, .find-bar .secondary { min-height: 42px; padding: 9px 12px; }
+  .goal-editor input { width: 100%; min-height: 42px; }
+  .goal-editor .secondary, .goal-editor .quiet { min-height: 42px; }
+  .selection-bubble { flex-wrap: wrap; max-width: calc(100vw - 24px); padding: 8px; }
+  .selection-bubble button { min-height: 40px; padding: 8px 12px; font-size: 12px; }
+  .selection-bubble input { width: 100%; min-height: 40px; }
+
+  .overlay { padding: 0; place-items: stretch; }
+  .modal { width: 100%; max-width: none; min-height: 100dvh; padding: 20px 16px calc(22px + env(safe-area-inset-bottom)); border: 0; border-radius: 0; }
+  .modal-actions { flex-direction: column-reverse; }
+  .modal-actions button { width: 100%; min-height: 46px; }
+  .toast { bottom: calc(18px + env(safe-area-inset-bottom)); width: calc(100% - 32px); text-align: center; }
+
+  /* 触控目标：细长的行内按钮用内边距撑开到可点按的高度 */
+  .icon-button { width: 42px; height: 42px; }
+  .backup-modes input, .find-option input { width: 20px; height: 20px; flex: none; }
+  .primary, .secondary { min-height: 44px; }
+  .goal-set, .adopt-link, .note-pin, .workflow-reset, .workflow-delete, .production-delete, .text-danger, .shelf-import, .reference-list-head button { display: inline-flex; align-items: center; min-height: 34px; }
+  .chapter-outline summary { min-height: 40px; display: flex; align-items: center; }
+  .workflow-history-filters button, .stats-range button, .notes-tag-chips button { min-height: 40px; }
+  .workflow-history-actions { flex-wrap: wrap; }
+  .workflow-history-actions .primary, .workflow-history-actions .secondary { flex: 1 1 44%; }
+  .note-actions .secondary, .note-actions .text-danger { min-height: 40px; }
+  .production-delete { min-height: 40px; }
+  .reference-categories button { min-height: 52px; }
+  .reference-card > button, .reference-list-head button, .production-existing summary, .stats-month-nav button { display: inline-flex; align-items: center; min-height: 36px; }
+  .stats-month-nav button { justify-content: center; width: 40px; }
+  .stats-calendar-cell { min-height: 40px; }
+  .production-edit label { display: block; margin-bottom: 6px; }
+}
+/* 触屏设备：控件统一到可点按的尺寸。 */
+@media (pointer: coarse) {
+  .icon-button { width: 40px; height: 40px; }
+  .find-option input { width: 20px; height: 20px; }
+  .backup-modes input { width: 20px; height: 20px; }
+}

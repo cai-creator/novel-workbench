@@ -2,7 +2,8 @@
   <div class="app-shell">
     <header class="topbar">
       <button class="brand brand-button" type="button" @click="goShelf" aria-label="返回作品书架"><span class="brand-mark">文</span><span><strong>小说创作工作台</strong><small>新版 · 从故事到正文</small></span></button>
-      <div class="top-actions">
+      <button class="top-menu-toggle" type="button" :aria-expanded="topMenuOpen" aria-label="打开菜单" @click="topMenuOpen = !topMenuOpen"><span class="top-menu-icon" :class="{ open: topMenuOpen }"></span>菜单</button>
+      <div class="top-actions" :class="{ open: topMenuOpen }" @click="topMenuOpen = false">
         <span class="save-indicator" role="status">{{ saveStatus }}</span>
         <button v-if="screen !== 'shelf'" class="quiet" @click="goShelf">作品书架</button>
         <button v-else-if="book" class="quiet" @click="screen = 'editor'">返回写作</button>
@@ -238,7 +239,7 @@
             <div v-if="chapterWordGoal" class="goal-progress" role="progressbar" :aria-valuenow="chapterGoalPercent" aria-valuemin="0" aria-valuemax="100"><i :style="{ width: chapterGoalPercent + '%' }"></i></div>
             <div v-if="goalEditing" class="goal-editor"><input v-model.number="goalDraft" type="number" min="0" max="1000000" placeholder="本章目标字数" aria-label="本章目标字数" @keydown.enter.prevent="saveChapterGoal" /><button class="secondary" @click="saveChapterGoal">保存目标</button><button class="quiet" @click="clearChapterGoal">清除</button></div>
             <details class="chapter-outline"><summary>本章提纲 <span>{{ chapter.outline ? '已填写' : '可选' }}</span></summary><textarea v-model="chapter.outline" placeholder="这一章要发生什么？结尾留下什么悬念？" @input="touchChapter" /></details>
-            <textarea ref="manuscriptEl" v-model="chapter.content" class="manuscript" aria-label="章节正文" placeholder="故事从这里开始……" spellcheck="false" :style="{ fontSize: editorPrefs.fontSize + 'px' }" @input="touchChapter" @mouseup="updateSelectionBubble" @keyup="updateSelectionBubble" />
+            <textarea ref="manuscriptEl" v-model="chapter.content" class="manuscript" aria-label="章节正文" placeholder="故事从这里开始……" spellcheck="false" :style="{ fontSize: manuscriptFontSize + 'px' }" @input="touchChapter" @mouseup="updateSelectionBubble" @keyup="updateSelectionBubble" @touchend="updateSelectionBubble" />
             <div v-if="selectionBubble" class="selection-bubble" :style="{ top: selectionBubble.top + 'px', left: selectionBubble.left + 'px' }" @mousedown.prevent>
               <template v-if="selectionBusy"><span class="selection-busy">生成中…</span><button class="quiet" @click="selectionController?.abort()">停止</button></template>
               <template v-else-if="!selectionCustomOpen"><button v-for="action in selectionActions" :key="action.id" type="button" @click="runSelectionAction(action.id)">{{ action.label }}</button><button class="quiet" aria-label="关闭选区工具" @click="selectionBubble = null">×</button></template>
@@ -525,6 +526,7 @@ const backupMode = ref<'merge' | 'overwrite'>('merge')
 const backupNotice = ref('')
 const backupInput = ref<HTMLInputElement | null>(null)
 const backupChapterCount = computed(() => data.value.books.reduce((sum, item) => sum + item.chapters.length, 0))
+const topMenuOpen = ref(false)
 const selectedVersion = computed(() => chapter.value?.history?.find(item => item.id === selectedVersionId.value))
 const versionSourceLabel = (source: ChapterVersion['source']) => ({ manual: '手动留存', ai: 'AI 写入前', restore: '恢复前备份' })[source]
 const formatVersionTime = (value: string) => new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(value))
@@ -670,6 +672,9 @@ watch(selectedChapterId, rememberChapterLength)
 // —— 编辑器增强：查找替换、字数目标、专注模式、字号、划词修改 ——
 const manuscriptEl = ref<HTMLTextAreaElement | null>(null)
 const editorPrefs = ref(loadEditorPrefs())
+/** 触屏上正文字号低于 16px 时，聚焦输入框会触发系统缩放，这里抬高下限。 */
+const coarsePointer = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
+const manuscriptFontSize = computed(() => Math.max(editorPrefs.value.fontSize, coarsePointer ? 16 : 0))
 const focusMode = ref(false)
 const toastMessage = ref('')
 let toastTimer: ReturnType<typeof setTimeout> | null = null
@@ -864,6 +869,7 @@ function adoptSelectionSuggestion() {
 
 function handleEditorShortcuts(event: KeyboardEvent) {
   if (event.key === 'Escape') {
+    if (topMenuOpen.value) { topMenuOpen.value = false; return }
     if (findOpen.value) { closeFind(); return }
     if (focusMode.value) { focusMode.value = false; return }
   }
@@ -941,16 +947,23 @@ function flushSave() {
 onMounted(() => {
   window.addEventListener('beforeunload', flushSave)
   window.addEventListener('keydown', handleEditorShortcuts)
+  document.addEventListener('selectionchange', handleSelectionChange)
   rememberChapterLength()
 })
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', flushSave)
   window.removeEventListener('keydown', handleEditorShortcuts)
+  document.removeEventListener('selectionchange', handleSelectionChange)
   workflowController?.abort()
   productionController?.abort()
   selectionController?.abort()
   flushSave()
 })
+/** 触屏拖动选区手柄时也会触发 selectionchange，用来补上 touchend 覆盖不到的情况。 */
+function handleSelectionChange() {
+  if (document.activeElement !== manuscriptEl.value) return
+  updateSelectionBubble()
+}
 
 function goShelf() {
   if (screen.value === 'workflow') { flushWorkflowSave(); cancelWorkflowGeneration(); workflowCandidate.value = null }

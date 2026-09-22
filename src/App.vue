@@ -13,6 +13,7 @@
         <button v-if="screen !== 'stats'" class="quiet" @click="openStats">写作统计</button>
         <button class="quiet" @click="importInput?.click()">导入作品</button>
         <input ref="importInput" type="file" accept=".json,application/json" hidden @change="handleImport" />
+        <button class="quiet" @click="showBackup = true">备份与导出</button>
         <button v-if="screen === 'editor'" class="quiet" @click="exportBook" :disabled="!book">导出作品</button>
         <button class="quiet" @click="showModel = true">模型设置</button>
       </div>
@@ -340,6 +341,31 @@
 
     <div v-if="toastMessage" class="toast" role="status">{{ toastMessage }}</div>
 
+    <div v-if="showBackup" class="overlay" @click.self="showBackup = false">
+      <section class="modal backup-modal" role="dialog" aria-modal="true" aria-label="备份与导出">
+        <div class="modal-head"><div><small>本机数据</small><h2>备份与导出</h2></div><button class="icon-button" aria-label="关闭" @click="showBackup = false">×</button></div>
+        <h3 class="backup-title">全量备份</h3>
+        <p class="modal-note">备份包含全部作品、章节、设定、灵感、建书记录和写作统计，可在更换设备或清理浏览器后完整恢复。备份文件里也会写入当前模型密钥，请只保存在自己信任的地方。</p>
+        <p class="backup-summary">当前共有 <strong>{{ data.books.length }}</strong> 部作品 · <strong>{{ backupChapterCount }}</strong> 章 · <strong>{{ data.notes.length }}</strong> 条灵感 · <strong>{{ workflowRecordCount }}</strong> 条建书记录</p>
+        <div class="modal-actions">
+          <button class="primary" @click="exportWorkspaceBackup">下载全量备份</button>
+          <button class="secondary" @click="backupInput?.click()">选择备份文件恢复</button>
+          <input ref="backupInput" type="file" accept=".json,application/json" hidden @change="handleBackupImport" />
+        </div>
+        <div class="backup-modes" role="radiogroup" aria-label="恢复方式">
+          <label><input v-model="backupMode" type="radio" value="merge" /><span><strong>合并恢复</strong><small>保留当前数据，只添加备份里没有的作品、灵感与建书记录；统计按天取较大值。</small></span></label>
+          <label><input v-model="backupMode" type="radio" value="overwrite" /><span><strong>覆盖恢复</strong><small>清空当前全部数据，完全改用备份内容，包括模型设置。</small></span></label>
+        </div>
+        <p v-if="backupNotice" class="backup-notice" role="status">{{ backupNotice }}</p>
+        <h3 class="backup-title">导出阅读稿</h3>
+        <p class="modal-note">把正文导出为 TXT 文本，方便打印、存档或用其他阅读软件打开。</p>
+        <div class="modal-actions">
+          <button class="secondary" :disabled="!book" @click="exportBookTxt">导出《{{ book?.title || '当前作品' }}》全部章节</button>
+          <button class="secondary" :disabled="!chapter" @click="exportChapterTxt">导出当前章节</button>
+        </div>
+      </section>
+    </div>
+
     <div v-if="showLore && book" class="overlay" @click.self="showLore = false">
       <section class="modal lore-modal" role="dialog" aria-modal="true" aria-label="作品资料库">
         <div class="modal-head"><div><small>故事资料</small><h2>作品资料库</h2></div><button class="icon-button" aria-label="关闭" @click="showLore = false">×</button></div>
@@ -408,6 +434,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { generateChapterProse, generateDraft, refineSelection, requestChatCompletion, type SelectionAction } from './ai'
+import { BACKUP_SIZE_LIMIT, buildWorkspaceBackup, bookToTxt, chapterToTxt, mergeWorkflowRecords, mergeWorkspaceBackup, parseWorkspaceBackup, safeFileName, serializeWorkspaceBackup } from './backup'
 import { designFixture } from './design-fixture'
 import TextDiff from './TextDiff.vue'
 import { FONT_SIZE_RANGE, loadEditorPrefs, saveEditorPrefs } from './prefs'
@@ -433,7 +460,7 @@ function designWorkflowArchive(): WorkflowArchive {
   completed.completedAt = completed.updatedAt
   return { version: 2, activeId: draft.id, records: [draft, completed] }
 }
-const workflowArchive = ref<WorkflowArchive>(designPreview ? previewPanel === 'workflow-history' ? designWorkflowArchive() : { version: 2, activeId: null, records: [] } : loadWorkflowArchive())
+const workflowArchive = ref<WorkflowArchive>(designPreview && ['workflow-history', 'backup'].includes(previewPanel || '') ? designWorkflowArchive() : { version: 2, activeId: null, records: [] })
 const workflow = ref<WorkflowDraft>({ ...(workflowArchive.value.records.find(item => item.id === workflowArchive.value.activeId)?.draft || emptyWorkflow()) })
 const workflowHistoryFilter = ref<'all' | 'draft' | 'completed'>('all')
 const workflowHistoryFilters = [{ id: 'all', label: '全部' }, { id: 'draft', label: '未完成' }, { id: 'completed', label: '已建书' }] as const
@@ -493,6 +520,11 @@ const showHistory = ref(designPreview && previewPanel === 'history-diff')
 const selectedVersionId = ref(designPreview && previewPanel === 'history-diff' ? data.value.books[0]?.chapters[0]?.history?.[0]?.id || '' : '')
 const historyDiff = ref(designPreview && previewPanel === 'history-diff')
 const historyNotice = ref('')
+const showBackup = ref(designPreview && previewPanel === 'backup')
+const backupMode = ref<'merge' | 'overwrite'>('merge')
+const backupNotice = ref('')
+const backupInput = ref<HTMLInputElement | null>(null)
+const backupChapterCount = computed(() => data.value.books.reduce((sum, item) => sum + item.chapters.length, 0))
 const selectedVersion = computed(() => chapter.value?.history?.find(item => item.id === selectedVersionId.value))
 const versionSourceLabel = (source: ChapterVersion['source']) => ({ manual: '手动留存', ai: 'AI 写入前', restore: '恢复前备份' })[source]
 const formatVersionTime = (value: string) => new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(value))
@@ -1317,5 +1349,64 @@ async function handleImport(event: Event) {
   } catch (error) {
     alert(error instanceof Error ? error.message : '导入失败，请检查文件内容。')
   }
+}
+function downloadText(filename: string, text: string, mime: string) {
+  const url = URL.createObjectURL(new Blob([text], { type: `${mime};charset=utf-8` }))
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+function exportWorkspaceBackup() {
+  const backup = buildWorkspaceBackup(data.value, workflowArchive.value, new Date().toISOString())
+  downloadText(`小说工作台备份-${backup.exportedAt.slice(0, 10)}.json`, serializeWorkspaceBackup(backup), 'application/json')
+  backupNotice.value = `已导出备份：${backup.counts.books} 部作品、${backup.counts.chapters} 章、${backup.counts.notes} 条灵感。`
+}
+async function handleBackupImport(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  backupNotice.value = ''
+  if (!file) return
+  if (file.size > BACKUP_SIZE_LIMIT) { backupNotice.value = `文件超过 ${Math.round(BACKUP_SIZE_LIMIT / 1024 / 1024)}MB，暂不支持恢复。`; return }
+  let parsed: unknown
+  try { parsed = JSON.parse(await file.text()) } catch { backupNotice.value = '备份文件不是有效的 JSON，无法恢复。'; return }
+  const backup = parseWorkspaceBackup(parsed)
+  if (!backup) { backupNotice.value = '备份文件格式不受支持，请确认它来自本软件的“下载全量备份”。'; return }
+  const overwrite = backupMode.value === 'overwrite'
+  if (overwrite && !confirm('覆盖恢复会清空当前全部作品、灵感与统计，确定继续吗？')) return
+  let addedRecords = 0
+  if (overwrite) {
+    data.value = backup.data
+    if (backup.workflow) { workflowArchive.value = backup.workflow; saveWorkflowArchive(backup.workflow) }
+  } else {
+    const merged = mergeWorkspaceBackup(data.value, backup.data)
+    data.value = merged.data
+    const records = mergeWorkflowRecords(workflowArchive.value.records, backup.workflow?.records || [])
+    addedRecords = records.added
+    if (addedRecords) { workflowArchive.value = { ...workflowArchive.value, records: records.records }; saveWorkflowArchive(workflowArchive.value) }
+    backupNotice.value = `合并完成：新增 ${merged.summary.addedBooks} 部作品、${merged.summary.addedNotes} 条灵感、${addedRecords} 条建书记录；统计合并了 ${merged.summary.changedDays} 天。`
+  }
+  if (overwrite) backupNotice.value = `已用备份覆盖当前数据：${backup.counts.books} 部作品、${backup.counts.chapters} 章。`
+  const firstBook = data.value.books[0]
+  if (!firstBook) { selectedBookId.value = ''; selectedChapterId.value = ''; screen.value = 'shelf' }
+  else if (!data.value.books.some(item => item.id === selectedBookId.value)) { selectBook(firstBook.id) }
+  else if (!data.value.books.find(item => item.id === selectedBookId.value)?.chapters.some(item => item.id === selectedChapterId.value)) {
+    selectedChapterId.value = data.value.books.find(item => item.id === selectedBookId.value)?.chapters[0]?.id || ''
+  }
+  flushSave()
+  showToast(overwrite ? '已从备份恢复' : '已合并备份内容')
+}
+function exportBookTxt() {
+  if (!book.value) return
+  downloadText(`${safeFileName(book.value.title, '未命名作品')}.txt`, bookToTxt(book.value), 'text/plain')
+  backupNotice.value = `已导出《${book.value.title}》的 TXT 阅读稿。`
+}
+function exportChapterTxt() {
+  if (!book.value || !chapter.value) return
+  const title = chapter.value.title.trim() || '未命名章节'
+  downloadText(`${safeFileName(`${book.value.title}-${title}`, '章节')}.txt`, chapterToTxt(book.value, chapter.value), 'text/plain')
+  backupNotice.value = `已导出《${title}》的 TXT 阅读稿。`
 }
 </script>

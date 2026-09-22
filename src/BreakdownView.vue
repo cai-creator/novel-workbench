@@ -445,6 +445,8 @@ function closeProject() {
 }
 
 function removeProject(id: string) {
+  // 批处理闭包持有项目引用：删掉后改动不落盘、成果全丢，先挡下来
+  if (running.value) { workError.value = '正在批量拆解中，请先停止批处理，再删除项目。'; return }
   const project = store.value.projects.find(item => item.id === id)
   if (project && !confirm(`删除《${project.title}》的拆书项目？章节正文与拆解产物会一起删除。`)) return
   store.value = { ...store.value, projects: store.value.projects.filter(item => item.id !== id) }
@@ -505,8 +507,14 @@ async function runBatch(chapters: BreakdownChapter[]) {
         chapter.status = 'done'
         if (analysis.relations.length) mergeCharacterNames(project, analysis)
       } catch (error) {
-        chapter.status = 'failed'
-        chapter.errorMessage = error instanceof Error ? error.message : String(error)
+        // 用户主动停止不是失败：该章退回待拆状态，不带 AbortError 文案
+        if (signal.aborted) {
+          chapter.status = 'wait'
+          chapter.errorMessage = undefined
+        } else {
+          chapter.status = 'failed'
+          chapter.errorMessage = error instanceof Error ? error.message : String(error)
+        }
       }
       recalcBreakdownProject(project)
       if (!persist()) notifyPersistFailure()

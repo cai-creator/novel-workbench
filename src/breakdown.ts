@@ -315,12 +315,17 @@ export function recalcBreakdownProject(project: BreakdownProject): BreakdownProj
  */
 export function collectBreakdownMaterials(project: BreakdownProject): BreakdownMaterials {
   const materials: BreakdownMaterials = { character: [], rhythm: [], setting: [], outline: [], technique: [] }
+  const seen = new Set<string>()
   const push = (kind: BreakdownMaterialKind, label: string, text: string, chapterSortNo: number, chapterTitle: string) => {
     const cleanLabel = asText(label)
     const cleanText = asText(text)
     if (!cleanText) return
     const bucket = materials[kind]
     if (bucket.length >= BREAKDOWN_MATERIAL_LIMIT) return
+    // 完全同内容的条目只收一次：别让重复占满上限，把真正多样的素材挡在门外
+    const key = `${kind}|${cleanLabel}|${cleanText}`
+    if (seen.has(key)) return
+    seen.add(key)
     bucket.push({ kind, label: cleanLabel, text: cleanText, chapterSortNo, chapterTitle })
   }
   const doneChapters = project.chapters
@@ -329,7 +334,8 @@ export function collectBreakdownMaterials(project: BreakdownProject): BreakdownM
   for (const chapter of doneChapters) {
     const analysis = chapter.analysis as BreakdownAnalysis
     for (const item of analysis.relations) {
-      push('character', `${item.from} → ${item.to}${item.relation ? `（${item.relation}）` : ''}`, item.desc, chapter.sortNo, chapter.title)
+      // desc 为空时退回关系本身，人物素材不至于整体变少
+      push('character', `${item.from} → ${item.to}${item.relation ? `（${item.relation}）` : ''}`, item.desc || item.relation || '', chapter.sortNo, chapter.title)
     }
     for (const item of analysis.rhythm) {
       push('rhythm', `${item.label}${item.value ? `（${item.value}）` : ''}`, item.desc, chapter.sortNo, chapter.title)

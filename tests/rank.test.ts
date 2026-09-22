@@ -163,6 +163,40 @@ const storeOf = (...docs: RankSnapshotDoc[]): RankStore => ({ version: 1, viewed
 // 解析：番茄 HTML
 // ---------------------------------------------------------------------------
 
+/** 线上页面的真实结构：在读、状态、最新章节这些字段用 span 包裹，并用注释节点隔开文字与数字 */
+const fanqieItemSpan = (params: {
+  no: string
+  title: string
+  href: string
+  author: string
+  count: string
+  last: string
+  time: string
+}) => `
+      <div class="rank-book-item">
+        <div class="book-item-index"><h1>${params.no}</h1><p><span>0</span></p></div>
+        <div class="book-cover"><a href="${params.href}"><img src="//fqnovelpic.com/novel-pic/x.jpg" /></a></div>
+        <div class="book-item-content">
+          <div class="title"><a href="${params.href}">${params.title}</a></div>
+          <div class="author"><a href="/author/1"><span>${params.author}</span></a></div>
+          <div class="desc">这是简介</div>
+          <span class="book-item-count">在读：<!-- -->${params.count}</span>
+          <div class="book-item-footer">
+            <span class="book-item-footer-last"><a class="chapter" href="${params.href}/1">最近更新：<!-- -->${params.last}</a></span>
+            <span class="book-item-footer-status">连载中</span>
+            <span class="book-item-footer-time">${params.time}</span>
+          </div>
+        </div>
+      </div>`
+
+const realFanqieHtml = () => `<html><body>
+  <header class="muye-rank-wrap-header"><div><h1>阅读榜</h1><p>统计时间截止至<!-- -->09-21 24:00</p></div></header>
+  <div class="muye-rank-book-list">
+  ${fanqieItemSpan({ no: '1', title: '第一本书', href: '/page/7401', author: '作者甲', count: '123.5万', last: '第100章 终局', time: '2026-09-21 20:35' })}
+  ${fanqieItemSpan({ no: '2', title: '第二本书', href: '/page/7402', author: '作者乙', count: '98万', last: '第99章 中局', time: '2026-09-21 22:01' })}
+  </div>
+</body></html>`
+
 test('parseFanqieRankHtml 解析榜单条目与头部说明', () => {
   const parsed = parseFanqieRankHtml(sampleFanqieHtml())
   equal(parsed.pageTitle, '阅读榜')
@@ -183,6 +217,23 @@ test('parseFanqieRankHtml 解析榜单条目与头部说明', () => {
   equal(parsed.items[1].rankChange, -3, 'down 表示名次下降')
   equal(parsed.items[2].rankChange, 0, '没有升降标记时持平')
   equal(parsed.items[0].categoryName, null, '番茄条目本身不带分类，由源配置补')
+})
+
+test('parseFanqieRankHtml 吃下线上 span 包裹与注释节点结构', () => {
+  // 番茄在 div 和 span 之间换过包裹，header 也从 div 换成了 header；两种都要能解析
+  const parsed = parseFanqieRankHtml(realFanqieHtml())
+  equal(parsed.pageTitle, '阅读榜')
+  equal(parsed.cutoffText, '统计时间截止至 09-21 24:00', '注释节点只留一个空格')
+  equal(parsed.items.length, 2)
+  const first = parsed.items[0]
+  equal(first.bookTitle, '第一本书')
+  equal(first.authorName, '作者甲')
+  equal(first.metricText, '在读：123.5万')
+  equal(first.metricValue, 1235000)
+  equal(first.statusText, '连载中')
+  equal(first.lastChapterTitle, '第100章 终局')
+  equal(first.lastUpdateTimeText, '2026-09-21 20:35')
+  equal(parsed.items[1].lastUpdateTimeText, '2026-09-21 22:01')
 })
 
 test('parseFanqieRankHtml 用字体字典解码私用区字符', () => {

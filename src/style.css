@@ -592,6 +592,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 /* 竞品拆书：导入整本 TXT，逐章拆解并汇总成可复用技巧。 */
 .breakdown-page { flex: 1; min-height: 0; overflow-y: auto; background: radial-gradient(circle at 84% 0, #dcecf7, transparent 32%), #f4f3f7; }
+/* 扫榜：抓榜单快照攒趋势，排名对照、分类分布、标签风向与竞品跟踪。 */
+.rank-page { flex: 1; min-height: 0; overflow-y: auto; background: radial-gradient(circle at 85% 0, #e3ecf5, transparent 32%), #f4f5f8; }
 /* 建书工作流：逐步编排创意、章节和设定，候选稿确认后才进入草稿。 */
 .workflow-page { flex: 1; min-height: 0; overflow-y: auto; background: radial-gradient(circle at 83% 0, #f7dce7, transparent 30%), #f5eff2; }
 .workflow-shell { width: min(1050px, calc(100% - 56px)); margin: 0 auto; padding: 42px 0 72px; }

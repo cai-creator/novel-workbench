@@ -1,4 +1,5 @@
 /** 测试入口：node --experimental-strip-types --import ./tests/setup.mjs --loader ./tests/loader.mjs tests/run.ts */
+import './setup.mjs'
 import { readdir } from 'node:fs/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { runAll } from './harness'

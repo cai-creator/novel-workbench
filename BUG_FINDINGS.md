@@ -51,6 +51,7 @@
 - 机制说明：未捕获的 `saveBreakdownStore` 抛出直接掐断调用链、后续语句（`dataEpoch += 1`、`flushSave()`）被跳过的行为，已在 P0-2 的拆解批处理实验中实测验证；本条为同一机制在覆写恢复链路上的应用，未单独对备份导入文件流做实测（IAB 不支持文件选择器注入）。
 
 ### P0-4 主数据损坏时静默返回空状态，自动保存随即把损坏数据覆盖掉【已实测】
+✅ 已修复（commit 66cf742）：`loadData` 检出解析失败或结构不符时，先把原文搬到暂存键 `novel-workbench-next/v1-corrupt`（最多 3 份）再返回空状态，自动保存再也碰不到原文；启动时弹中文 toast 说明暂存位置。暂存区已满或暂存失败时保留主键原文并拒绝写入，用户确认覆盖恢复时才解除保护。
 - 位置：`src/storage.ts:182-196`（`loadData` 捕获 JSON.parse 失败后 `return` 全新空数据；190 行注释自认「损坏数据保留在浏览器里，避免自动覆盖」）+ `src/App.vue:1038-1045`（对 `data` 的 350ms 防抖 deep watch → `flushSave` → `saveData`）。
 - 行为：localStorage 里 `novel-workbench-next/v1` 一旦损坏（写入中途断电、多标签页竞争写入等），App 启动时读不到就**当作用户没有数据**，350ms 后自动保存把空状态写回同一个键——损坏但可能手工恢复的数据在数秒内被不可逆抹掉，且界面上只呈现「空白工作台」，没有任何「检测到损坏数据」的提示。注释声明的「保留」承诺与实际行为直接矛盾。
 - 复现（node 单元级，仓库 loader 直接驱动 `loadData`/`saveData`）：键写入截断 JSON `{"version":2,"books":[` → `loadData()` 返回**全新空状态**（books 为空、无任何损坏标记）→ App 的 350ms deep-watch 自动保存随即 `saveData(空状态)` 写回同一键，截断原文被不可逆替换。

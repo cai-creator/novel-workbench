@@ -1369,6 +1369,8 @@ function restoreVersion() {
   recordChapterVersion(chapter.value, 'restore')
   chapter.value.title = target.title
   chapter.value.content = target.content
+  // 恢复不记手写增量，但要把已统计字数刷新成恢复后的长度：否则下次手动输入会把整段差值误记为手写
+  chapterLengths.set(chapter.value.id, countWords(chapter.value.content))
   const timestamp = now()
   chapter.value.updatedAt = timestamp
   book.value.updatedAt = timestamp
@@ -1552,7 +1554,10 @@ async function handleBackupImport(event: Event) {
     )
     saveRankStore({ ...currentRank, snapshots: side.rank })
     saveBreakdownStore({ ...currentBreakdown, projects: side.breakdown })
-    const sideParts = [side.addedRank ? `扫榜快照 ${side.addedRank} 份` : '', side.addedBreakdown ? `拆书项目 ${side.addedBreakdown} 个` : ''].filter(Boolean)
+    const sideParts = [
+      side.addedRank || side.updatedRank ? `扫榜快照 新增 ${side.addedRank} 份、更新 ${side.updatedRank} 份` : '',
+      side.addedBreakdown || side.updatedBreakdown ? `拆书项目 新增 ${side.addedBreakdown} 个、更新 ${side.updatedBreakdown} 个` : '',
+    ].filter(Boolean)
     sideNote = sideParts.length ? `；${sideParts.join('、')}` : ''
     backupNotice.value = `合并完成：新增 ${merged.summary.addedBooks} 部作品、${merged.summary.addedNotes} 条灵感、${addedRecords} 条建书记录${sideNote}；统计合并了 ${merged.summary.changedDays} 天。`
   }

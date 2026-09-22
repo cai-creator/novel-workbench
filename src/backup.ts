@@ -109,7 +109,8 @@ function findDay(days: DayStats[], date: string): DayStats | undefined {
 
 /** 恢复用合并：同一天只保留较大值，避免同一台设备的备份被重复累计。 */
 function mergeStatsKeepLarger(base: StatsState, incoming: StatsState): { stats: StatsState; changedDays: number } {
-  const merged: StatsState = { dailyGoal: Math.max(base.dailyGoal, incoming.dailyGoal), days: base.days.map(day => ({ ...day, books: { ...day.books } })) }
+  // 每日目标跟模型设置一样以当前设备为准：取较大值会让半年前备份里的大目标悄悄覆盖用户现在的设定
+  const merged: StatsState = { dailyGoal: base.dailyGoal, days: base.days.map(day => ({ ...day, books: { ...day.books } })) }
   let changedDays = 0
   for (const day of incoming.days) {
     const target = findDay(merged.days, day.date)
@@ -162,22 +163,40 @@ export interface SideStoreMerge {
   rank: RankSnapshotDoc[]
   breakdown: BreakdownProject[]
   addedRank: number
+  updatedRank: number
   addedBreakdown: number
+  updatedBreakdown: number
 }
 
-/** 合并扫榜快照与拆书库：本地已有的不覆盖，只补备份里没有的日期和项目 */
+/** 合并扫榜快照与拆书库：同键保留较新的一份，因此除了「新增」还有「更新」，计数要分开报 */
 export function mergeSideStores(current: SideStoreInput, incoming: SideStoreInput): SideStoreMerge {
   const currentRank = current.rank || []
   const incomingRank = incoming.rank || []
   const currentProjects = current.breakdown || []
   const incomingProjects = incoming.breakdown || []
-  const knownRank = new Set(currentRank.map(item => `${item.sourceId}|${item.statDate}`))
-  const knownProjects = new Set(currentProjects.map(item => item.id))
+  const localRank = new Map(currentRank.map(item => [`${item.sourceId}|${item.statDate}`, item]))
+  const localProjects = new Map(currentProjects.map(item => [item.id, item]))
+  let addedRank = 0
+  let updatedRank = 0
+  for (const item of incomingRank) {
+    const prev = localRank.get(`${item.sourceId}|${item.statDate}`)
+    if (!prev) addedRank += 1
+    else if (item.fetchedAt > prev.fetchedAt) updatedRank += 1
+  }
+  let addedBreakdown = 0
+  let updatedBreakdown = 0
+  for (const item of incomingProjects) {
+    const prev = localProjects.get(item.id)
+    if (!prev) addedBreakdown += 1
+    else if (item.updateTime > prev.updateTime) updatedBreakdown += 1
+  }
   return {
     rank: mergeRankSnapshots(currentRank, incomingRank),
     breakdown: mergeBreakdownProjects(currentProjects, incomingProjects),
-    addedRank: incomingRank.filter(item => !knownRank.has(`${item.sourceId}|${item.statDate}`)).length,
-    addedBreakdown: incomingProjects.filter(item => !knownProjects.has(item.id)).length,
+    addedRank,
+    updatedRank,
+    addedBreakdown,
+    updatedBreakdown,
   }
 }
 

@@ -147,6 +147,27 @@ test('扫榜快照与拆书库合并时按日期和 ID 去重，同键保留较�
   equal(merged.breakdown.map(item => item.title), ['本地竞品', '备份新竞品'], '同 ID 保留本地，只补没有的')
   equal(merged.addedRank, 1, '只把 09-20 算作新增')
   equal(merged.addedBreakdown, 1)
+  equal(merged.updatedRank, 1, '被顶掉的 09-22 计为更新，不少报')
+  equal(merged.updatedBreakdown, 0, '备份里较旧的拆书项目不构成更新')
+})
+
+test('合并恢复的每日目标以当前设备为准，不被备份里的大目标抬走', () => {
+  const current = project([book('b1', '书', [])])
+  current.stats.dailyGoal = 800
+  const incoming = project([book('b2', '备份里的书', [])])
+  incoming.stats.dailyGoal = 5000
+  const { data } = mergeWorkspaceBackup(current, incoming)
+  equal(data.stats.dailyGoal, 800, '保留用户当前设定')
+  equal(data.stats.days, [], '空统计合并不产生天数')
+})
+
+test('合并恢复的每日目标为默认值时同样以当前设备为准', () => {
+  const current = project([])
+  current.stats.dailyGoal = 2000
+  const incoming = project([])
+  incoming.stats.dailyGoal = 800
+  const { data } = mergeWorkspaceBackup(current, incoming)
+  equal(data.stats.dailyGoal, 2000, '当前是默认值也不拿备份的小目标覆盖')
 })
 
 test('备份里结构错误的扫榜与拆书段被当成没有，不拖垮恢复', () => {

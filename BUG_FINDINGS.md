@@ -129,6 +129,7 @@
 ## P2 健壮性与边界
 
 ### P2-1 主数据校验过浅，手改/损坏 localStorage 可致运行时崩溃【部分已实测】
+✅ 已修复（commit ef4c170）：normalizeProjectData 对 books 逐章逐条修复——缺 content 补空串、缺 updatedAt 补书级时间、缺 ID 重建，非对象章节/设定/对话/历史坏条目就地剔除；备份导入走同一归一化。策略是「修复而不是拒收」，避免一个坏章节把整库判成损坏。
 - 位置：`src/storage.ts:198-206`（`isProjectData` 只查顶层与 book 一级字段）+ `src/storage.ts:137-146`（`normalizeProjectData` 中 `books` 原样透传）+ 崩溃点 `src/ai.ts:75`（`chapter.content.slice(-5000)`）**与 `src/App.vue:639`（`latestChapter` 的 `b.updatedAt.localeCompare`）**。
 - 行为：`v1`/`v2` 键里 chapter 缺 `content` 字段（手改或写坏）时，类型系统挡不住；任何引用 `chapter.content` 的路径（AI 上下文、正文对比、版本历史 diff）直接 TypeError。与 P0-4 叠加：损坏→清空→重建后老章节数据其实可以手工修回，但校验不深就修不回来。
 - **已实测（章节缺 `updatedAt` 的"假死"链）**：v1 写入一本书、2 个章节均缺 `updatedAt`（`isProjectData` 只验数组，照样通过）→ 应用能正常启动进工作台（初始选章走数组下标，不经过 `latestChapter`）；但点「作品书架」导航后，书架模板 `latestChapter(item)`（App.vue:197）抛 `TypeError: Cannot read properties of undefined (reading 'localeCompare')`，整次重渲染失败——**页面冻结在原来的工作台，书架不显示、无任何错误提示**；点侧栏切换作品（`selectBook`，App.vue:1253）同点抛错，永远切不走。控制台直接复现该排序表达式得到同一 TypeError。

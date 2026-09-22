@@ -1405,7 +1405,7 @@ async function handleBackupImport(event: Event) {
   const backup = parseWorkspaceBackup(parsed)
   if (!backup) { backupNotice.value = '备份文件格式不受支持，请确认它来自本软件的“下载全量备份”。'; return }
   const overwrite = backupMode.value === 'overwrite'
-  if (overwrite && !confirm('覆盖恢复会清空当前全部作品、灵感与统计，确定继续吗？')) return
+  if (overwrite && !confirm('覆盖恢复会清空当前全部作品、灵感、统计、扫榜快照与拆书库，确定继续吗？')) return
   let addedRecords = 0
   let sideNote = ''
   if (overwrite) {

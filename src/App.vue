@@ -478,6 +478,7 @@ import { FONT_SIZE_RANGE, loadEditorPrefs, saveEditorPrefs } from './prefs'
 import { createBook, importBookJson, loadData, now, recordChapterVersion, saveData, uid, type Book, type ChatEntry, type Chapter, type ChapterVersion, type InspirationNote, type LoreMode, type Mode } from './storage'
 import { currentStreak, dateKey, DEFAULT_DAILY_GOAL, heatLevel, monthMatrix, pruneStatsBooks, recordWords, totalsFor, trendSeries } from './stats'
 import { buildBookFromWorkflow, createWorkflowRecord, emptyWorkflow, exportWorkflowArchive, importWorkflowArchive, loadWorkflowArchive, parseChapterPlan, saveWorkflowArchive, workflowPrompt, type WorkflowArchive, type WorkflowDraft, type WorkflowField, type WorkflowRecord } from './workflow'
+import { onQuotaWarning } from './quota'
 
 const designPreview = import.meta.env.DEV && new URLSearchParams(location.search).has('ui-preview')
 const data = ref(designPreview ? designFixture() : loadData())
@@ -812,9 +813,12 @@ function showToast(message: string) {
   if (toastTimer) clearTimeout(toastTimer)
   toastTimer = setTimeout(() => { toastMessage.value = '' }, 2400)
 }
+/** 任何一次存储写失败都弹一次 toast：配额满时不再静默丢数据，也不再把英文异常抛给用户 */
+onQuotaWarning(showToast)
 function changeFontSize(delta: number) {
   editorPrefs.value.fontSize = Math.min(FONT_SIZE_RANGE.max, Math.max(FONT_SIZE_RANGE.min, editorPrefs.value.fontSize + delta * FONT_SIZE_RANGE.step))
-  saveEditorPrefs(editorPrefs.value)
+  try { saveEditorPrefs(editorPrefs.value) }
+  catch { /* 配额告警已由 writeStorage 弹出，这里只保证点击处理器不被异常打断 */ }
 }
 function toggleFocusMode() { focusMode.value = !focusMode.value }
 

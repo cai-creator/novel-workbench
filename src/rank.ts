@@ -18,6 +18,7 @@ import {
   rankPlatformOptions,
   type RankSeedSource,
 } from './rank-sources'
+import { writeStorage } from './quota'
 
 // ---------------------------------------------------------------------------
 // 类型
@@ -667,9 +668,7 @@ export function loadRankStore(): RankStore {
 }
 
 export function saveRankStore(store: RankStore): void {
-  try {
-    localStorage.setItem(RANK_STORAGE_KEY, JSON.stringify(store))
-  } catch { /* 存储写满时静默失败，页面上的快照仍在内存里 */ }
+  writeStorage(RANK_STORAGE_KEY, store)
 }
 
 const pruneRankSnapshots = (snapshots: RankSnapshotDoc[]): RankSnapshotDoc[] => {

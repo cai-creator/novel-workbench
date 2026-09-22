@@ -1,5 +1,7 @@
 /** 编辑器偏好：只影响当前浏览器的写作界面，不进入作品数据。 */
 
+import { writeStorage } from './quota'
+
 export interface EditorPrefs { fontSize: number }
 
 const STORAGE_KEY = 'novel-workbench-next/editor-prefs'
@@ -20,5 +22,5 @@ export function loadEditorPrefs(): EditorPrefs {
 }
 
 export function saveEditorPrefs(prefs: EditorPrefs): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs))
+  writeStorage(STORAGE_KEY, prefs)
 }

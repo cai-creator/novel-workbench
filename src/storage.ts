@@ -1,5 +1,6 @@
 import type { StatsState } from './stats'
 import { emptyStatsState, pruneStats } from './stats'
+import { writeStorage } from './quota'
 
 export type Mode = 'prose' | 'world' | 'character' | 'plot'
 export type LoreMode = Exclude<Mode, 'prose'> | 'timeline'
@@ -192,7 +193,7 @@ export function loadData(): ProjectData {
 }
 
 export function saveData(data: ProjectData): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+  writeStorage(STORAGE_KEY, data)
 }
 
 export function isProjectData(value: unknown): value is ProjectData {

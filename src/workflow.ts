@@ -1,4 +1,5 @@
 import { createBook, now, uid, type Book, type Chapter } from './storage'
+import { writeStorage } from './quota'
 
 export type WorkflowField = 'idea' | 'title' | 'outline' | 'world' | 'characters' | 'timeline'
 export interface WorkflowDraft {
@@ -78,7 +79,7 @@ export function loadWorkflowArchive(): WorkflowArchive {
   return emptyArchive()
 }
 export function saveWorkflowArchive(archive: WorkflowArchive): void {
-  localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(archive))
+  writeStorage(ARCHIVE_STORAGE_KEY, archive)
   localStorage.removeItem(LEGACY_STORAGE_KEY)
 }
 export function exportWorkflowArchive(archive: WorkflowArchive): string {

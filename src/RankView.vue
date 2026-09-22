@@ -325,7 +325,16 @@ import {
 const props = defineProps<{ model: ModelSettings; dataEpoch?: number }>()
 
 const store = ref(loadRankStore())
-const persist = () => saveRankStore(store.value)
+/** 统一落盘：配额等写失败由 quota 模块广播告警，这里再落到页面错误区，不再让异常乱飞 */
+const persist = (): boolean => {
+  try {
+    saveRankStore(store.value)
+    return true
+  } catch (error) {
+    crawlError.value = error instanceof Error ? error.message : String(error)
+    return false
+  }
+}
 
 /** 备份恢复后重新读盘：本地存储已被 App 改写，内存里的旧快照要作废 */
 watch(() => props.dataEpoch, () => {

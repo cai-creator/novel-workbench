@@ -5,6 +5,8 @@
  * localStorage 单键方案，AI 调用复用 src/ai.ts，界面在 BreakdownView.vue。
  */
 
+import { writeStorage } from './quota'
+
 // ---------------------------------------------------------------------------
 // 类型
 // ---------------------------------------------------------------------------
@@ -690,7 +692,7 @@ export function loadBreakdownStore(): BreakdownStore {
 }
 
 export function saveBreakdownStore(store: BreakdownStore): void {
-  localStorage.setItem(BREAKDOWN_STORAGE_KEY, JSON.stringify({ version: 1, projects: store.projects.slice(0, BREAKDOWN_MAX_PROJECTS) }))
+  writeStorage(BREAKDOWN_STORAGE_KEY, { version: 1, projects: store.projects.slice(0, BREAKDOWN_MAX_PROJECTS) })
 }
 
 export function exportBreakdownStore(store: BreakdownStore): string {

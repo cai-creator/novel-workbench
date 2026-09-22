@@ -252,7 +252,16 @@ import {
 const props = defineProps<{ model: ModelSettings; dataEpoch?: number }>()
 
 const store = ref(loadBreakdownStore())
-const persist = () => saveBreakdownStore(store.value)
+/** 统一落盘：配额等写失败由 quota 模块广播告警，这里再落到页面错误区，不再让异常乱飞 */
+const persist = (): boolean => {
+  try {
+    saveBreakdownStore(store.value)
+    return true
+  } catch (error) {
+    listError.value = error instanceof Error ? error.message : String(error)
+    return false
+  }
+}
 
 /** 备份恢复后重新读盘：本地存储已被 App 改写，内存里的旧项目要作废 */
 watch(() => props.dataEpoch, () => {
@@ -365,7 +374,8 @@ async function importTxt(file: File) {
     const title = file.name.replace(/\.[^.]+$/, '').trim() || '导入拆书'
     const project = createBreakdownProject(parseTxtBook(text, title))
     store.value = { ...store.value, projects: [project, ...store.value.projects].slice(0, 30) }
-    persist()
+    // 落盘失败时留在列表页：错误区能显示原因，也不装作导入成功
+    if (!persist()) return
     openProject(project.id)
   } catch (error) {
     listError.value = error instanceof Error ? error.message : String(error)

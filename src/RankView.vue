@@ -324,12 +324,13 @@ import {
   type RankSource,
   type RankTagTrend,
 } from './rank'
+import { designSideStores } from './design-fixture'
 
 const props = defineProps<{ model: ModelSettings; dataEpoch?: number }>()
 
 const designPreview = import.meta.env.DEV && new URLSearchParams(location.search).has('ui-preview')
 // 设计预览下不读不写真实 localStorage，避免预览操作污染本机数据
-const store = ref(designPreview ? emptyRankStore() : loadRankStoreCached())
+const store = ref(designPreview ? designSideStores().rank : loadRankStoreCached())
 /** 统一落盘：配额等写失败由 quota 模块广播告警，这里再落到页面错误区，不再让异常乱飞 */
 const persist = (): boolean => {
   if (designPreview) return true

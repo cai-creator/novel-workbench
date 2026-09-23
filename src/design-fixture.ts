@@ -1,5 +1,6 @@
 import { dateKey, type StatsState } from './stats'
 import type { ProjectData } from './storage'
+import { createBreakdownProject, normalizeChapterAnalysis, parseTxtBook, recalcBreakdownProject } from './breakdown'
 
 /** 预览用统计：围绕今天生成两周记录，让日历和趋势图看起来是“正在连载”的状态。 */
 function designStats(): StatsState {
@@ -61,4 +62,79 @@ export function designFixture(): ProjectData {
       ],
     }],
   }
+}
+
+// ---------------------------------------------------------------------------
+// 竞品拆书与扫榜的预览样例：让 ?panel=breakdown / ?panel=rank 两个设计页有内容可看
+// ---------------------------------------------------------------------------
+
+function designBreakdownStore(): import('./breakdown').BreakdownStore {
+  const parsed = parseTxtBook([
+    '第一章 第十三声钟响',
+    '凌晨零点，城市的钟声敲了十三下。林澈停在便利店门口，手里的热咖啡忽然凉了。',
+    '街对面的人群仍在走动，仿佛谁都没有听见多出来的那一声。',
+    '路灯下，穿红雨衣的女孩抬起头，朝他做了个噤声的手势。',
+    '手机亮起，一条没有署名的短信写着：别回家。',
+    '第二章 被抹去的名字',
+    '门锁只转了半圈就开了。玄关的灯亮着，鞋柜上摆着两双拖鞋，一双是他的，另一双也是他的。',
+    '他翻出抽屉里的旧相册，合照上只站着他和母亲。',
+  ].join('\n'), '夜行者档案')
+  const project = createBreakdownProject(parsed)
+  const first = project.chapters[0]
+  const { analysis, insightIds } = normalizeChapterAnalysis({
+    summary: '第十三声钟响只被主角听见，红雨衣女孩的噤声手势埋下「异常同伴」的钩子。',
+    outline: [
+      { title: '异常的钟声', startPara: 1, endPara: 1, text: '只有林澈听见第十三声，确立他的感知异于常人。' },
+      { title: '噤声手势', startPara: 3, endPara: 4, text: '女孩主动示警，匿名短信把悬念推向家门。' },
+    ],
+    rhythm: [
+      { label: '开篇钩子', desc: '钟声异常 + 短信威胁，两段内完成双重悬念' },
+    ],
+    setting: [
+      { name: '午夜交换', type: '世界观', desc: '每天午夜城市交换记忆，纸质记录可以发现差异。', tags: ['核心规则'] },
+    ],
+    relations: [
+      { from: '林澈', to: '红雨衣女孩', relation: '可疑的同伴', desc: '她最早知道异常，主动示意噤声。' },
+    ],
+  }, first.paragraphs.length)
+  first.status = 'done'
+  first.analysis = analysis
+  first.insightIds = insightIds
+  recalcBreakdownProject(project)
+  return { version: 1, projects: [project] }
+}
+
+function designRankStore(): import('./rank').RankStore {
+  const statDate = dateKey(new Date())
+  const items = Array.from({ length: 10 }, (_, index) => ({
+    rankNo: index + 1,
+    rankChange: index % 3 === 0 ? 2 : index % 3 === 1 ? -1 : 0,
+    bookTitle: `样例榜单书${index + 1}`,
+    bookId: `7401${index}`,
+    bookUrl: `https://fanqienovel.com/page/7401${index}`,
+    intro: null,
+    authorName: '样例作者',
+    statusText: index % 2 ? '连载中' : '已完结',
+    metricName: '在读',
+    metricValue: 100000 - index * 6300,
+    metricText: `${((100000 - index * 6300) / 10000).toFixed(1)}万`,
+    readingCount: 100000 - index * 6300,
+    readingText: null,
+    lastChapterTitle: `第${120 - index}章 夜行`,
+    lastChapterUrl: null,
+    lastUpdateTimeText: '1小时前',
+    coverUrl: null,
+    categoryName: '都市',
+    categorySubName: null,
+  }))
+  return {
+    version: 1,
+    viewedSourceIds: [1],
+    snapshots: [{ sourceId: 1, statDate, fetchedAt: Date.now(), pageTitle: '番茄都市榜', cutoffText: null, origin: 'crawl', items }],
+  }
+}
+
+/** 仅开发预览用：拆书与扫榜面板的样例库，不落盘。 */
+export function designSideStores(): { breakdown: import('./breakdown').BreakdownStore; rank: import('./rank').RankStore } {
+  return { breakdown: designBreakdownStore(), rank: designRankStore() }
 }

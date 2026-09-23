@@ -31,7 +31,7 @@
           <div v-if="workflow.step === 1" class="workflow-fields">
             <div class="workflow-field-row"><label>作品类型<input v-model="workflow.genre" placeholder="例如：都市悬疑、玄幻冒险" /></label><label>目标读者<input v-model="workflow.audience" placeholder="例如：喜欢快节奏悬疑的读者" /></label><label>叙事风格<input v-model="workflow.tone" placeholder="例如：克制、诡谲、带少量幽默" /></label></div>
             <div class="workflow-field-head"><label for="workflow-seed">原始灵感</label><button class="secondary" @click="openNotePicker">从灵感库选择</button></div><textarea id="workflow-seed" v-model="workflow.seed" placeholder="哪怕只有一句话：主角遇到了什么异常？他非解决不可的事是什么？" />
-            <div class="workflow-field-head"><label for="workflow-idea">可用创意</label><span class="workflow-field-tools"><button class="secondary" @click="openBreakdownPicker('idea')">从拆书带入</button><button class="secondary" :disabled="workflowBusy" @click="generateWorkflow('idea')">✦ AI 完善创意</button></span></div><textarea id="workflow-idea" v-model="workflow.idea" placeholder="把创意改成你愿意写下去的版本。AI 生成内容需要先预览和采纳。" />
+            <div class="workflow-field-head"><label for="workflow-idea">已采纳创意</label><span class="workflow-field-tools"><button class="secondary" @click="openBreakdownPicker('idea')">从拆书带入</button><button class="secondary" :disabled="workflowBusy" @click="generateWorkflow('idea')">✦ 逐条生成灵感</button></span></div><textarea id="workflow-idea" v-model="workflow.idea" placeholder="先从候选中采纳一条，再继续修改成你愿意写下去的版本。" /><p class="workflow-help">AI 会一次生成多条独立创意。每条都可以单独编辑、采纳或重新生成，不会自动覆盖当前草稿。</p>
           </div>
           <div v-else-if="workflow.step === 2" class="workflow-fields">
             <div class="workflow-field-head"><label for="workflow-title">作品名称</label><button class="secondary" :disabled="workflowBusy" @click="generateWorkflow('title')">✦ AI 取书名</button></div><input id="workflow-title" v-model="workflow.title" maxlength="60" placeholder="先起一个工作书名，随时可以改" />
@@ -442,6 +442,20 @@
       </section>
     </div>
 
+    <div v-if="workflowIdeaOpen" class="overlay" @click.self="workflowIdeaOpen = false"><section class="modal preview-modal workflow-idea-modal" role="dialog" aria-modal="true" aria-label="逐条灵感候选">
+      <div class="modal-head"><div><small>逐条灵感 · 人工筛选</small><h2>选择你愿意继续写的方向</h2></div><button class="icon-button" aria-label="关闭" @click="workflowIdeaOpen = false">×</button></div>
+      <p class="modal-note">每条灵感独立生成。你可以先修改，再采纳其中一条；生成过程不会覆盖当前已采纳创意。</p>
+      <p v-if="workflowIdeaGenerating" class="workflow-idea-progress" role="status">正在生成第 {{ workflowIdeaCandidates.length + 1 }} 条灵感…</p>
+      <div v-if="!workflowIdeaCandidates.length && workflowIdeaGenerating" class="workflow-idea-empty">正在准备第一条候选，请稍候。</div>
+      <div v-else class="workflow-idea-list">
+        <article v-for="(item, index) in workflowIdeaCandidates" :key="item.id" class="workflow-idea-card">
+          <div class="workflow-idea-card-head"><strong>灵感 {{ index + 1 }}</strong><span>{{ item.status === 'adopted' ? '已采纳' : '待筛选' }}</span></div>
+          <textarea v-model="item.text" aria-label="灵感候选" />
+          <div class="workflow-idea-actions"><button class="secondary" :disabled="workflowBusy || !item.text.trim()" @click="adoptWorkflowIdea(item)">{{ item.status === 'adopted' ? '已采纳' : '采纳这条' }}</button><button class="secondary" :disabled="workflowBusy" @click="regenerateWorkflowIdea(item)">重新生成</button><button class="text-danger" :disabled="workflowBusy" @click="removeWorkflowIdea(item.id)">暂不考虑</button></div>
+        </article>
+      </div>
+      <div class="modal-actions"><button class="secondary" @click="workflowIdeaOpen = false">关闭候选</button></div>
+    </section></div>
     <div v-if="workflowCandidate" class="overlay" @click.self="workflowCandidate = null"><section class="modal preview-modal" role="dialog" aria-modal="true" aria-label="预览建书候选">
       <div class="modal-head"><div><small>候选稿 · 可先修改</small><h2>预览并采纳{{ workflowFieldLabel(workflowCandidate.field) }}</h2></div><button class="icon-button" aria-label="关闭" @click="workflowCandidate = null">×</button></div>
       <p class="modal-note">模型生成结果不会自动覆盖草稿。你可以直接修改下方文本，再决定是否采纳。</p><textarea v-model="workflowCandidate.text" class="preview-textarea" aria-label="建书候选内容" /><div class="modal-actions"><button class="secondary" @click="workflowCandidate = null">暂不采纳</button><button class="primary" :disabled="!workflowCandidate.text.trim()" @click="adoptWorkflowCandidate">采纳到草稿</button></div>
@@ -652,6 +666,9 @@ const workflowBusy = ref(false)
 const workflowError = ref('')
 const workflowSaveStatus = ref('草稿已保存在本机')
 const workflowCandidate = ref<{ field: WorkflowField; text: string } | null>(null)
+const workflowIdeaOpen = ref(false)
+const workflowIdeaGenerating = ref(false)
+const workflowIdeaCandidates = ref<{ id: string; text: string; status: 'pending' | 'adopted' }[]>([])
 const workflowFieldLabel = (field: WorkflowField) => ({ idea: '创意', title: '书名', outline: '大纲', world: '世界观', characters: '人物', timeline: '时间线' })[field]
 let workflowController: AbortController | null = null
 let workflowSaveTimer: ReturnType<typeof setTimeout> | null = null
@@ -1459,10 +1476,11 @@ async function handleWorkflowImport(event: Event) {
 function nextWorkflow() { if (workflow.value.step < 4) workflow.value.step = (workflow.value.step + 1) as WorkflowDraft['step'] }
 function previousWorkflow() { if (workflow.value.step > 1) workflow.value.step = (workflow.value.step - 1) as WorkflowDraft['step'] }
 function stopWorkflow() { workflowController?.abort() }
-function cancelWorkflowGeneration() { workflowController?.abort(); workflowController = null; workflowBusy.value = false }
+function cancelWorkflowGeneration() { workflowController?.abort(); workflowController = null; workflowBusy.value = false; workflowIdeaGenerating.value = false; workflowIdeaOpen.value = false; workflowIdeaCandidates.value = [] }
 async function generateWorkflow(field: WorkflowField) {
   if (workflowBusy.value) return
   if (![workflow.value.seed, workflow.value.idea, workflow.value.genre].some(value => value.trim())) { workflowError.value = '先填写原始灵感或作品类型，再请 AI 生成。'; return }
+  if (field === 'idea') { await generateWorkflowIdeas(); return }
   workflowError.value = ''
   workflowBusy.value = true
   const requestController = new AbortController()
@@ -1474,6 +1492,89 @@ async function generateWorkflow(field: WorkflowField) {
     if (screen.value === 'workflow' && workflowArchive.value.activeId === requestRecordId && workflowController === requestController) workflowCandidate.value = { field, text }
   } catch (error) { if (screen.value === 'workflow' && workflowArchive.value.activeId === requestRecordId && workflowController === requestController) workflowError.value = error instanceof Error ? error.message : String(error) }
   finally { if (workflowController === requestController) { workflowBusy.value = false; workflowController = null } }
+}
+
+function cleanWorkflowIdea(value: string) {
+  return value.trim().replace(/^```(?:text|markdown)?\s*/i, '').replace(/```$/i, '').replace(/^(?:灵感|创意|候选)\s*\d*\s*[:：|｜-]\s*/i, '').trim()
+}
+
+async function generateWorkflowIdeas() {
+  if (workflowBusy.value) return
+  workflowError.value = ''
+  workflowIdeaCandidates.value = []
+  workflowIdeaOpen.value = true
+  workflowIdeaGenerating.value = true
+  workflowBusy.value = true
+  const requestController = new AbortController()
+  const requestRecordId = workflowArchive.value.activeId
+  workflowController = requestController
+  try {
+    // 独立请求，确保每条创意都能单独重试与采纳，而不是把一整段结果拆成假卡片。
+    for (let index = 0; index < 3; index += 1) {
+      if (requestController.signal.aborted) break
+      const prompt = workflowPrompt('idea', workflow.value)
+      const raw = await requestChatCompletion({
+        model: modelForRole('workflow'),
+        system: prompt.system,
+        user: `${prompt.user}\n\n这是第 ${index + 1} 条独立候选。只输出这一条创意正文，不要编号、不要解释，不要输出其它候选。避免重复前面已经生成的方向。`,
+        signal: requestController.signal,
+        maxTokens: 900,
+      })
+      const text = cleanWorkflowIdea(raw)
+      if (!text) continue
+      if (screen.value === 'workflow' && workflowArchive.value.activeId === requestRecordId && workflowController === requestController) {
+        workflowIdeaCandidates.value.push({ id: uid(), text, status: 'pending' })
+      }
+    }
+    if (!workflowIdeaCandidates.value.length && !requestController.signal.aborted) workflowError.value = '没有生成有效的创意候选，请重试。'
+  } catch (error) {
+    if (!requestController.signal.aborted && screen.value === 'workflow' && workflowArchive.value.activeId === requestRecordId) workflowError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    workflowIdeaGenerating.value = false
+    if (workflowController === requestController) { workflowBusy.value = false; workflowController = null }
+  }
+}
+
+async function regenerateWorkflowIdea(item: { id: string; text: string; status: 'pending' | 'adopted' }) {
+  if (workflowBusy.value) return
+  workflowError.value = ''
+  workflowBusy.value = true
+  const requestController = new AbortController()
+  const requestRecordId = workflowArchive.value.activeId
+  workflowController = requestController
+  try {
+    const prompt = workflowPrompt('idea', workflow.value)
+    const raw = await requestChatCompletion({
+      model: modelForRole('workflow'),
+      system: prompt.system,
+      user: `${prompt.user}\n\n请重新生成一条不同方向的独立候选，只输出创意正文，不要编号、解释或备选列表。`,
+      signal: requestController.signal,
+      maxTokens: 900,
+    })
+    if (screen.value === 'workflow' && workflowArchive.value.activeId === requestRecordId && workflowController === requestController) {
+      const text = cleanWorkflowIdea(raw)
+      if (!text) throw new Error('重新生成结果为空，请重试。')
+      item.text = text
+      item.status = 'pending'
+    }
+  } catch (error) {
+    if (!requestController.signal.aborted) workflowError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    if (workflowController === requestController) { workflowBusy.value = false; workflowController = null }
+  }
+}
+
+function adoptWorkflowIdea(item: { id: string; text: string; status: 'pending' | 'adopted' }) {
+  const text = item.text.trim()
+  if (!text) return
+  workflow.value.idea = text
+  for (const candidate of workflowIdeaCandidates.value) candidate.status = candidate.id === item.id ? 'adopted' : 'pending'
+  workflowIdeaOpen.value = false
+  workflowError.value = ''
+}
+
+function removeWorkflowIdea(id: string) {
+  workflowIdeaCandidates.value = workflowIdeaCandidates.value.filter(item => item.id !== id)
 }
 function adoptWorkflowCandidate() {
   if (!workflowCandidate.value) return

@@ -626,6 +626,16 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .workflow-field-tools { display: flex; flex-wrap: wrap; gap: 8px; }
 .workflow-field-tools button { font-size: 11px; }
 .workflow-help { margin: 9px 0; color: #a28b9b; font-size: 11px; line-height: 1.7; }
+.workflow-idea-modal { width: min(760px, 94vw); max-height: 86vh; overflow-y: auto; }
+.workflow-idea-progress { margin: 0 0 12px; color: #bd5371; font-size: 12px; }
+.workflow-idea-empty { padding: 30px 15px; border: 1px dashed #ebcbd8; border-radius: 10px; color: #a18c9b; font-size: 12px; text-align: center; }
+.workflow-idea-list { display: grid; gap: 12px; }
+.workflow-idea-card { padding: 14px; border: 1px solid #eadce6; border-radius: 12px; background: #fff; }
+.workflow-idea-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; color: #63475d; font-size: 12px; }
+.workflow-idea-card-head span { padding: 3px 8px; border-radius: 99px; color: #9d8291; background: #f7eef3; font-size: 10px; }
+.workflow-idea-card textarea { width: 100%; min-height: 92px; box-sizing: border-box; padding: 10px 11px; border: 1px solid #e8d9e4; border-radius: 8px; color: #4f3b4b; background: #fff; font-size: 12px; line-height: 1.8; resize: vertical; }
+.workflow-idea-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
+.workflow-idea-actions button { font-size: 11px; }
 .workflow-error { padding: 10px 13px; border: 1px solid #f0b4bf; border-radius: 8px; color: #ac3857; background: #fff0f2; font-size: 12px; line-height: 1.6; }
 .workflow-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 20px; border-top: 1px solid #f0e5eb; }
 .workflow-footer > span { color: #ad98a7; font-size: 11px; }

@@ -7,6 +7,7 @@
         <h1>把别人的好书拆开看</h1>
         <p>导入整本 TXT，逐章拆解细纲、关键节点、爽点节奏与人物关系；前三章附带黄金三章深拆，全部拆完自动生成全书报告。</p>
       </header>
+      <div v-if="pendingTask" class="bd-task-resume" role="status"><div><strong>检测到未完成的拆书任务</strong><span>《{{ pendingTask.title || '未命名作品' }}》 · {{ pendingTask.chapterIds.length }} 章</span></div><div><button class="secondary" type="button" @click="resumePendingTask">继续拆解</button><button class="text-danger" type="button" @click="discardPendingTask">清除任务记录</button></div></div>
       <div class="bd-layout">
         <section class="bd-upload" :class="{ over: dragging }" @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false" @drop.prevent="handleDrop">
           <small>IMPORT</small>
@@ -293,6 +294,24 @@ import {
 } from './tomato'
 
 interface RankBookSeed { title: string; author: string; url: string; bookId: string | null }
+interface BreakdownTaskState { projectId: string; title: string; chapterIds: string[]; updatedAt: string }
+const BREAKDOWN_TASK_KEY = 'novel-workbench-next/breakdown-task-v1'
+function loadPendingTask(): BreakdownTaskState | null {
+  if (designPreview) return null
+  try {
+    const value = JSON.parse(localStorage.getItem(BREAKDOWN_TASK_KEY) || 'null') as Partial<BreakdownTaskState> | null
+    if (!value || typeof value.projectId !== 'string' || !Array.isArray(value.chapterIds) || !value.chapterIds.length) return null
+    return { projectId: value.projectId, title: typeof value.title === 'string' ? value.title : '', chapterIds: value.chapterIds.filter(item => typeof item === 'string'), updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : '' }
+  } catch { return null }
+}
+function savePendingTask(value: BreakdownTaskState) {
+  if (designPreview) return
+  try { localStorage.setItem(BREAKDOWN_TASK_KEY, JSON.stringify(value)) } catch { /* 配额不足时不影响当前拆解 */ }
+}
+function clearPendingTaskStorage() {
+  if (designPreview) return
+  try { localStorage.removeItem(BREAKDOWN_TASK_KEY) } catch { /* ignore */ }
+}
 const props = defineProps<{ model: ModelSettings; dataEpoch?: number; initialBook?: RankBookSeed | null }>()
 const emit = defineEmits<{ (event: 'clear-handoff'): void }>()
 
@@ -337,6 +356,7 @@ const dragging = ref(false)
 const listError = ref('')
 const workError = ref('')
 const running = ref(false)
+const pendingTask = ref<BreakdownTaskState | null>(loadPendingTask())
 const reportBusy = ref(false)
 const showReport = ref(false)
 const batchCount = ref(3)
@@ -642,6 +662,23 @@ function openProject(id: string) {
   workView.value = 'chapters'
 }
 
+function discardPendingTask() {
+  pendingTask.value = null
+  clearPendingTaskStorage()
+}
+
+async function resumePendingTask() {
+  const task = pendingTask.value
+  if (!task || running.value) return
+  const project = store.value.projects.find(item => item.id === task.projectId)
+  if (!project) { discardPendingTask(); listError.value = '未找到待恢复的拆书项目，任务记录已清除。'; return }
+  openProject(project.id)
+  await nextTick()
+  const chapters = project.chapters.filter(item => task.chapterIds.includes(item.id) && item.status !== 'done')
+  if (!chapters.length) { discardPendingTask(); return }
+  await runBatch(chapters)
+}
+
 function closeProject() {
   activeId.value = null
   showReport.value = false
@@ -687,6 +724,9 @@ async function runBatch(chapters: BreakdownChapter[]) {
   if (!props.model.model.trim()) { workError.value = '请先在右上角模型设置中填写模型 ID'; return }
   running.value = true
   workError.value = ''
+  const taskState: BreakdownTaskState = { projectId: project.id, title: project.title, chapterIds: chapters.map(item => item.id), updatedAt: new Date().toISOString() }
+  pendingTask.value = taskState
+  savePendingTask(taskState)
   controller.value = new AbortController()
   const signal = controller.value.signal
   try {
@@ -721,11 +761,22 @@ async function runBatch(chapters: BreakdownChapter[]) {
       }
       recalcBreakdownProject(project)
       if (!persist()) notifyPersistFailure()
+      taskState.updatedAt = new Date().toISOString()
+      pendingTask.value = { ...taskState }
+      savePendingTask(taskState)
       if (signal.aborted) break
     }
   } finally {
     running.value = false
     controller.value = null
+    const remaining = chapters.some(item => item.status !== 'done')
+    if (remaining) {
+      pendingTask.value = { ...taskState }
+      savePendingTask(taskState)
+    } else {
+      pendingTask.value = null
+      clearPendingTaskStorage()
+    }
   }
 }
 
@@ -800,6 +851,12 @@ async function generateReport() {
 .bd-card-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 6px; }
 .bd-card time { color: #b3a8b5; font-size: 11px; }
 .bd-error { margin: 10px 0 0; color: #b3283d; font-size: 12px; }
+.bd-task-resume { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 16px 0 0; padding: 12px 14px; border: 1px solid #ecd2dd; border-radius: 12px; background: #fff8fb; }
+.bd-task-resume > div:first-child { display: grid; gap: 4px; }
+.bd-task-resume strong { color: #6c3554; font-size: 12px; }
+.bd-task-resume span { color: var(--muted); font-size: 11px; }
+.bd-task-resume > div:last-child { display: flex; flex-wrap: wrap; gap: 7px; }
+.bd-task-resume button { font-size: 11px; }
 .tomato-settings-grid, .tomato-range { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .tomato-settings-grid label, .tomato-range label { display: grid; gap: 5px; color: var(--muted); font-size: 11px; }
 .tomato-settings-grid input, .tomato-range input { width: 100%; box-sizing: border-box; padding: 8px 9px; border: 1px solid var(--line); border-radius: 8px; background: #fff; font: inherit; }

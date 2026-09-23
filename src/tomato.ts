@@ -145,7 +145,7 @@ export async function getTomatoJob(settings: TomatoSettings, id: number): Promis
 }
 
 export async function listTomatoLibrary(settings: TomatoSettings): Promise<TomatoLibraryItem[]> {
-  const raw = await tomatoRequest<{ items?: Record<string, unknown>[] }>(settings, '/api/library?start=false')
+  const raw = await tomatoRequest<{ items?: Record<string, unknown>[] }>(settings, '/api/library?start=true')
   return (raw.items || []).map(item => ({
     kind: item.kind === 'dir' ? 'dir' : 'file',
     name: String(item.name ?? ''),

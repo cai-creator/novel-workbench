@@ -494,7 +494,7 @@ async function pollTomatoJob(id: number) {
     tomatoJob.value = job
     if (job.state === 'Done') {
       tomatoStatus.value = '下载完成，请下载 TXT 后导入拆书'
-      tomatoDownloads.value = (await listTomatoLibrary(tomatoSettings.value)).filter(item => item.kind === 'file' && item.ext === 'txt').slice(0, 8)
+      tomatoDownloads.value = (await listTomatoLibrary(tomatoSettings.value)).filter(item => item.kind === 'file' && item.ext === 'txt').sort((a, b) => (b.modifiedMs || 0) - (a.modifiedMs || 0)).slice(0, 8)
       return
     }
     if (['Failed', 'Canceled'].includes(job.state)) return

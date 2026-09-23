@@ -54,4 +54,4 @@ pnpm run preview
 
 开发服务启动后，可以访问 `http://127.0.0.1:6790/?ui-preview=1` 查看带样例数据的界面；使用 `panel=shelf`、`panel=workflow`、`panel=production`、`panel=breakdown` 或 `panel=rank` 可查看对应页面。预览数据只用于展示，不会写入本机作品。
 
-设计说明：本项目为独立实现，部分设计思路参考开源项目 easy-writing。
+设计说明：部分设计思路参考开源项目 easy-writing。

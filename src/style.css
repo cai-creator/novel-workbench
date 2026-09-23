@@ -849,6 +849,21 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .production-outline { margin: 18px 0; padding: 16px 18px; border-left: 3px solid #ee9eb2; border-radius: 0 9px 9px 0; background: #fff5f8; }
 .production-outline strong { color: #a94c6e; font-size: 11px; }
 .production-outline p { margin: 6px 0 0; color: #826b7c; font-size: 12px; line-height: 1.8; white-space: pre-wrap; }
+.production-plan { margin: 14px 0; padding: 15px; border: 1px solid #e8d6e2; border-radius: 13px; background: #fffafc; }
+.production-plan .production-section-head { margin-bottom: 6px; }
+.production-plan-note, .production-plan-empty { margin: 7px 0 12px; color: #927d8d; font-size: 11px; line-height: 1.7; }
+.production-plan-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.production-plan-actions button { font-size: 11px; }
+.production-beats { display: grid; gap: 8px; }
+.production-beat { display: grid; grid-template-columns: 116px minmax(0, 1fr) auto; gap: 8px; align-items: start; padding: 9px; border: 1px solid #eadce6; border-radius: 9px; background: #fff; }
+.production-beat.approved { border-color: #aad5b4; background: #f8fff9; }
+.production-beat-kind { display: flex; align-items: center; gap: 6px; padding-top: 7px; color: #795d70; font-size: 11px; }
+.production-beat-kind input { accent-color: #bd5371; }
+.production-beat-kind span { display: inline-grid; place-items: center; min-width: 20px; height: 20px; border-radius: 50%; color: #a34463; background: #f8e7ee; font-size: 10px; }
+.production-beat-kind select { min-width: 52px; padding: 3px; border: 1px solid #e8d9e4; border-radius: 5px; color: #765c70; background: #fff; font-size: 10px; }
+.production-beat textarea { width: 100%; min-height: 48px; box-sizing: border-box; padding: 7px 9px; border: 1px solid #e8d9e4; border-radius: 7px; color: #4f3b4b; background: #fff; font-size: 12px; line-height: 1.7; resize: vertical; }
+.production-beat > .text-danger { padding: 7px 2px; font-size: 10px; }
+.production-add-beat { margin-top: 8px; font-size: 11px; }
 .production-controls { padding-bottom: 20px; border-bottom: 1px solid #eee2e9; }
 .production-fields { display: grid; grid-template-columns: 145px 145px minmax(0, 1fr); gap: 12px; }
 .production-fields label, .production-adopt label { color: #71576a; font-size: 11px; font-weight: 700; }

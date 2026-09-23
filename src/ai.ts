@@ -94,6 +94,9 @@ export function chapterProsePrompt(book: Book, chapterId: string, instruction: s
       lore && `已确认的作品资料：\n${lore}`,
       previous && `上一章「${previous.title}」结尾（仅用于承接，不要重复）：\n${previous.content.slice(-2600) || previous.outline?.slice(-800) || '暂无'}`,
       `当前章节：${chapter.title}\n本章提纲：${chapter.outline?.trim() || '尚未填写，请按作品核心和前文自然推进。'}`,
+      chapter.scenePlan?.approved && chapter.scenePlan.beats.length
+        ? `已确认的事件与场景顺序（必须全部覆盖，不得改变顺序）：\n${chapter.scenePlan.beats.map((beat, index) => `${index + 1}. [${beat.kind === 'scene' ? '场景' : '事件'}] ${beat.text}`).join('\n')}`
+        : '本章尚未确认事件与场景框架。',
       chapter.content.trim() && (kind === 'rewrite' ? `本章现稿（只作参考；请重新构思写法，不要逐句改写）：\n${chapter.content.slice(0, 2600)}` : `本章已有正文结尾（直接接上，不要重复）：\n${chapter.content.slice(-2600)}`),
       next?.outline && `下一章边界（留伏笔，不提前展开）：${next.outline.slice(0, 500)}`,
       `本次目标：约 ${targetLength} 个汉字，写出完整场景和至少一次明确推进。${kind === 'rewrite' || !chapter.content.trim() ? '从本章开头写一份完整的新稿，与现稿可独立比较。' : '接续本章已有正文，不重复开头。'}`,

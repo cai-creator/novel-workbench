@@ -174,8 +174,9 @@
           <nav class="production-chapters" aria-label="生文章节列表"><div class="production-list-title"><strong>章节进度</strong><span>按目录顺序</span></div><button v-for="(item, index) in book.chapters" :key="item.id" type="button" :class="{ active: item.id === selectedChapterId }" @click="selectProductionChapter(item.id)"><b>{{ String(index + 1).padStart(2, '0') }}</b><span><strong>{{ item.title }}</strong><small>{{ item.proseCandidates?.length ? `${item.proseCandidates.length} 份候选待审` : item.content.trim() ? `${wordOf(item.id, item.content)} 字 · 已写` : '等待生文' }}</small></span><i>{{ item.proseCandidates?.length ? '✦' : item.content.trim() ? '✓' : '→' }}</i></button></nav>
           <section v-if="chapter" class="production-stage">
             <div class="production-stage-head"><div><small>CHAPTER {{ String(book.chapters.findIndex(item => item.id === selectedChapterId) + 1).padStart(2, '0') }}</small><h2>{{ chapter.title }}</h2></div><span :class="{ ready: !!chapter.proseCandidates?.length }">{{ chapter.proseCandidates?.length ? `${chapter.proseCandidates.length} 份候选` : chapter.content.trim() ? '已有正文' : '待生成' }}</span></div>
+            <section class="production-plan"><div class="production-section-head"><div><small>BEAT PLAN · 先搭骨架再写正文</small><h3>事件与场景框架 <span v-if="chapter.scenePlan">{{ chapter.scenePlan.beats.length }} 条</span></h3></div><div class="production-plan-actions"><button class="secondary" :disabled="planBusy" @click="generateChapterPlan">{{ planBusy ? '生成中…' : chapter.scenePlan ? '重新生成框架' : '生成事件与场景' }}</button><button v-if="chapter.scenePlan && !chapter.scenePlan.approved" class="primary" :disabled="!chapter.scenePlan.beats.length" @click="approveChapterPlan">我已审核，允许写正文</button></div></div><p class="production-plan-note">AI 先按顺序列出一句一句的事件和场景。你可以编辑、删除或补充，确认后才会生成正文。</p><p v-if="planError" class="workflow-error" role="alert">{{ planError }}</p><div v-if="chapter.scenePlan?.beats.length" class="production-beats"><div v-for="(beat, index) in chapter.scenePlan.beats" :key="beat.id" class="production-beat" :class="{ approved: beat.approved }"><label class="production-beat-kind"><input v-model="beat.approved" type="checkbox" :aria-label="`确认第 ${index + 1} 条`" /><span>{{ index + 1 }}</span><select v-model="beat.kind" aria-label="框架类型"><option value="event">事件</option><option value="scene">场景</option></select></label><textarea v-model="beat.text" aria-label="事件或场景内容" @input="chapter.scenePlan!.approved = false" /><button class="text-danger" type="button" @click="removeChapterBeat(beat.id)">删除</button></div><button class="secondary production-add-beat" type="button" @click="addChapterBeat">＋ 添加一条</button></div><p v-else class="production-plan-empty">先生成本章框架，再逐条审核。</p></section>
             <div class="production-outline"><strong>本章提纲</strong><p>{{ chapter.outline || '还没有章纲。可以先在写作页补充，以便 AI 把握本章事件。' }}</p></div>
-            <div class="production-controls"><div class="production-fields"><label>写作任务<select v-model="productionKind"><option value="continue" :disabled="!chapter.content.trim()">接着本章写</option><option value="rewrite">从头写本章</option></select></label><label>目标篇幅<select v-model.number="productionLength"><option :value="800">约 800 字</option><option :value="1500">约 1500 字</option><option :value="2000">约 2000 字</option></select></label><label>写作要求<textarea v-model="productionInstruction" placeholder="可选：指定视角、重点场景、对话节奏或需要避开的情节。" /></label></div><div class="production-generate"><span>会参考故事概念、人物和世界设定，以及上一章结尾。新稿会作为另一份候选保存。</span><button v-if="productionBusy" class="secondary" @click="stopProduction">停止生成</button><button v-else class="primary" @click="generateProduction">✦ 生成新候选</button></div><p v-if="productionError" class="workflow-error" role="alert">{{ productionError }}</p></div>
+            <div class="production-controls"><div class="production-fields"><label>写作任务<select v-model="productionKind"><option value="continue" :disabled="!chapter.content.trim()">接着本章写</option><option value="rewrite">从头写本章</option></select></label><label>目标篇幅<select v-model.number="productionLength"><option :value="800">约 800 字</option><option :value="1500">约 1500 字</option><option :value="2000">约 2000 字</option></select></label><label>写作要求<textarea v-model="productionInstruction" placeholder="可选：指定视角、重点场景、对话节奏或需要避开的情节。" /></label></div><div class="production-generate"><span>先确认上面的事件与场景框架，AI 再基于框架填充正文。</span><button v-if="productionBusy" class="secondary" @click="stopProduction">停止生成</button><button v-else class="primary" :disabled="!chapter.scenePlan?.approved" @click="generateProduction">✦ 根据框架生成正文</button></div><p v-if="productionError" class="workflow-error" role="alert">{{ productionError }}</p></div>
             <div v-if="selectedProseCandidate" class="production-candidate">
               <div class="production-section-head"><div><small>AI CANDIDATES</small><h3>候选正文 <span>{{ chapter.proseCandidates?.length }} 份可选</span></h3></div><button class="production-delete" @click="deleteProductionCandidate">删除当前候选</button></div>
               <div class="production-variants" role="tablist" aria-label="正文候选版本"><button v-for="(candidate, index) in chapter.proseCandidates" :key="candidate.id" type="button" role="tab" :aria-selected="selectedProseCandidate.id === candidate.id" :class="{ active: selectedProseCandidate.id === candidate.id }" @click="selectProductionCandidate(candidate.id)"><strong>方案 {{ String(index + 1).padStart(2, '0') }}</strong><span>{{ candidate.kind === 'rewrite' ? '从头重写' : '续写' }} · {{ wordOf(candidate.id, candidate.content) }} 字</span></button></div>
@@ -514,7 +515,7 @@ import RankView from './RankView.vue'
 import { breakdownMaterialKinds, breakdownMaterialLabels, countBreakdownMaterials, emptyStore as emptyBreakdownStore, formatBreakdownMaterials, loadBreakdownStore, saveBreakdownStore, type BreakdownMaterialKind, type BreakdownStore } from './breakdown'
 import { emptyRankStore, loadRankStore, pruneRankSnapshots, saveRankStore, type RankItem } from './rank'
 import { FONT_SIZE_RANGE, loadEditorPrefs, saveEditorPrefs } from './prefs'
-import { createBook, importBookJson, loadData, MAX_NOTES, now, recordChapterVersion, releaseCorruptDataProtection, saveData, takeCorruptDataNotice, uid, type Book, type ChatEntry, type Chapter, type ChapterVersion, type InspirationNote, type LoreMode, type Mode, type ModelProfile, type ModelSettings } from './storage'
+import { createBook, importBookJson, loadData, MAX_NOTES, now, recordChapterVersion, releaseCorruptDataProtection, saveData, takeCorruptDataNotice, uid, type Book, type ChatEntry, type Chapter, type ChapterSceneBeat, type ChapterScenePlan, type ChapterVersion, type InspirationNote, type LoreMode, type Mode, type ModelProfile, type ModelSettings } from './storage'
 import { MODEL_PROVIDER_PRESETS, defaultModelDraft, fetchRemoteModelIds, providerPreset, parseExtraParams, type ModelProviderPreset } from './model'
 import { currentStreak, dateKey, heatLevel, monthMatrix, pruneStatsBooks, recordWords, totalsFor, trendSeries } from './stats'
 import { buildBookFromWorkflow, createWorkflowRecord, emptyWorkflow, exportWorkflowArchive, importWorkflowArchive, loadWorkflowArchive, MAX_WORKFLOW_RECORDS, parseChapterPlan, saveWorkflowArchive, workflowPrompt, type WorkflowArchive, type WorkflowDraft, type WorkflowField, type WorkflowRecord } from './workflow'
@@ -693,6 +694,9 @@ const compareProduction = ref(designPreview && previewPanel === 'production-comp
 const productionBusy = ref(false)
 const productionError = ref('')
 let productionController: AbortController | null = null
+const planBusy = ref(false)
+const planError = ref('')
+let planController: AbortController | null = null
 const countBookWords = (item: Book) => item.chapters.reduce((sum, part) => sum + countWords(part.content), 0)
 const latestChapter = (item: Book) => [...item.chapters].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
 const latestUpdate = (item: Book) => [item.updatedAt, ...item.chapters.map(part => part.updatedAt)].sort().at(-1) || item.updatedAt
@@ -1372,6 +1376,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('selectionchange', handleSelectionChange)
   workflowController?.abort()
   productionController?.abort()
+  planController?.abort()
   selectionController?.abort()
   flushSave()
 })
@@ -1643,17 +1648,106 @@ function selectProductionChapter(id: string) {
   productionInsert.value = selectedProseCandidate.value?.kind === 'rewrite' || !chapter.value?.content.trim() ? 'replace' : 'append'
   compareProduction.value = false
   productionError.value = ''
+  planError.value = ''
 }
 function selectProductionCandidate(id: string) {
   if (!chapter.value?.proseCandidates?.some(item => item.id === id)) return
   selectedCandidateId.value = id
   productionInsert.value = selectedProseCandidate.value?.kind === 'rewrite' || !chapter.value.content.trim() ? 'replace' : 'append'
 }
+function parseChapterScenePlan(raw: string): ChapterSceneBeat[] {
+  const start = raw.indexOf('{')
+  const end = raw.lastIndexOf('}')
+  if (start < 0 || end <= start) throw new Error('框架结果不是有效 JSON，请重试。')
+  let parsed: unknown
+  try { parsed = JSON.parse(raw.slice(start, end + 1)) } catch { throw new Error('框架结果无法解析，请重试。') }
+  const source = parsed && typeof parsed === 'object' ? parsed as { beats?: unknown } : {}
+  if (!Array.isArray(source.beats)) throw new Error('框架结果缺少 beats 列表，请重试。')
+  const beats = source.beats.map((item, index): ChapterSceneBeat => {
+    const value = item && typeof item === 'object' ? item as Partial<ChapterSceneBeat> : {}
+    return { id: uid(), kind: value.kind === 'scene' ? 'scene' : 'event', text: String(value.text || '').trim(), approved: false }
+  }).filter(item => item.text)
+  if (beats.length < 2) throw new Error('框架至少需要两条事件或场景，请重试。')
+  return beats.slice(0, 20)
+}
+async function generateChapterPlan() {
+  if (!book.value || !chapter.value || planBusy.value) return
+  if (!modelForRole('text').model.trim()) { planError.value = '请先在模型设置中配置正文模型。'; return }
+  const targetBook = book.value
+  const targetChapter = chapter.value
+  const chapterIndex = targetBook.chapters.findIndex(item => item.id === targetChapter.id)
+  const previous = chapterIndex > 0 ? targetBook.chapters[chapterIndex - 1] : null
+  const next = targetBook.chapters[chapterIndex + 1]
+  const context = [
+    `作品：${targetBook.title}`,
+    `故事概念：${targetBook.premise.slice(0, 1200) || '未填写'}`,
+    `本章：${targetChapter.title}`,
+    `本章提纲：${targetChapter.outline?.slice(0, 1800) || '未填写，请根据作品和前后章自然推进'}`,
+    previous && `上一章结尾：${previous.content.slice(-1600) || previous.outline?.slice(-600) || '暂无'}`,
+    next?.outline && `下一章边界：${next.outline.slice(0, 700)}`,
+    targetBook.lore.length && `作品资料：${targetBook.lore.slice(0, 8).map(item => `${item.title}：${item.content.slice(0, 300)}`).join('\n')}`,
+  ].filter(Boolean).join('\n')
+  planBusy.value = true
+  planError.value = ''
+  const requestController = new AbortController()
+  planController = requestController
+  try {
+    const raw = await requestChatCompletion({
+      model: modelForRole('text'),
+      system: '你是中文连载小说的章节导演。先设计可审核的事件与场景顺序，不写正文。只输出 JSON：{"beats":[{"kind":"event或scene","text":"一句具体可执行的内容"}]}。每条只写一个动作或场景推进，按发生顺序排列；不要解释，不要 Markdown。',
+      user: `${context}\n\n请为本章设计 6—12 条事件与场景，事件负责因果推进，场景负责地点、人物和冲突落地。结尾要留下本章钩子，但不要提前写下一章正文。`,
+      signal: requestController.signal,
+      maxTokens: 2200,
+    })
+    if (requestController.signal.aborted) return
+    const beats = parseChapterScenePlan(raw)
+    const plan: ChapterScenePlan = { beats, approved: false, updatedAt: now() }
+    targetChapter.scenePlan = plan
+    targetBook.updatedAt = now()
+    flushSave()
+  } catch (error) {
+    if (!requestController.signal.aborted) planError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    if (planController === requestController) { planBusy.value = false; planController = null }
+  }
+}
+function approveChapterPlan() {
+  if (!chapter.value?.scenePlan?.beats.length) return
+  if (chapter.value.scenePlan.beats.some(item => !item.text.trim())) { planError.value = '还有空白的事件或场景，请补充或删除后再确认。'; return }
+  chapter.value.scenePlan.beats.forEach(item => { item.approved = true })
+  chapter.value.scenePlan.approved = true
+  chapter.value.scenePlan.updatedAt = now()
+  if (book.value) book.value.updatedAt = now()
+  planError.value = ''
+  flushSave()
+}
+function removeChapterBeat(id: string) {
+  if (!chapter.value?.scenePlan) return
+  chapter.value.scenePlan.beats = chapter.value.scenePlan.beats.filter(item => item.id !== id)
+  chapter.value.scenePlan.approved = false
+  chapter.value.scenePlan.updatedAt = now()
+  if (book.value) book.value.updatedAt = now()
+  flushSave()
+}
+function addChapterBeat() {
+  if (!chapter.value) return
+  const plan = chapter.value.scenePlan || { beats: [], approved: false, updatedAt: now() }
+  plan.beats.push({ id: uid(), kind: 'event', text: '', approved: false })
+  plan.approved = false
+  plan.updatedAt = now()
+  chapter.value.scenePlan = plan
+  if (book.value) book.value.updatedAt = now()
+  flushSave()
+}
 function stopProduction() { productionController?.abort() }
 async function generateProduction() {
   if (!book.value || !chapter.value || productionBusy.value) return
   const targetBook = book.value
   const targetChapter = chapter.value
+  if (!targetChapter.scenePlan?.approved) {
+    productionError.value = '请先生成并确认本章事件与场景框架，再开始生成正文。'
+    return
+  }
   const baseUpdatedAt = targetChapter.updatedAt
   const instruction = productionInstruction.value.trim()
   const kind = productionKind.value

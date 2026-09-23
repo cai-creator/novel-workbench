@@ -17,8 +17,23 @@ export interface Chapter {
   wordGoal?: number
   history?: ChapterVersion[]
   proseCandidates?: ChapterProseCandidate[]
+  /** 本章事件/场景框架：正文生成前先人工确认。 */
+  scenePlan?: ChapterScenePlan
   /** 旧版单候选字段，仅用于读取迁移。 */
   proseCandidate?: Omit<ChapterProseCandidate, 'id' | 'kind'>
+}
+
+export interface ChapterSceneBeat {
+  id: string
+  kind: 'event' | 'scene'
+  text: string
+  approved: boolean
+}
+
+export interface ChapterScenePlan {
+  beats: ChapterSceneBeat[]
+  approved: boolean
+  updatedAt: string
 }
 
 export interface ChapterProseCandidate {
@@ -274,6 +289,20 @@ const asText = (value: unknown, fallback: string) => typeof value === 'string' ?
 const asTimestamp = (value: unknown, fallback: string) =>
   typeof value === 'string' && Number.isFinite(Date.parse(value)) ? value : fallback
 
+export function normalizeChapterScenePlan(value: unknown, fallbackTime: string): ChapterScenePlan | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const source = value as Partial<ChapterScenePlan>
+  if (!Array.isArray(source.beats)) return undefined
+  const beats = source.beats.filter(item => item && typeof item === 'object').map((item: Partial<ChapterSceneBeat>) => ({
+    id: asText(item.id, '') || uid(),
+    kind: item.kind === 'scene' ? 'scene' : 'event',
+    text: asText(item.text, '').trim(),
+    approved: !!item.approved,
+  } satisfies ChapterSceneBeat)).filter(item => item.text)
+  if (!beats.length) return undefined
+  return { beats, approved: !!source.approved, updatedAt: asTimestamp(source.updatedAt, fallbackTime) }
+}
+
 /** 章节级校验：手改或损坏的 localStorage、畸形备份都从这里过一遍，坏字段就地修复而不是带病上线 */
 export function normalizeBooks(value: unknown): Book[] {
   if (!Array.isArray(value)) return []
@@ -296,6 +325,8 @@ export function normalizeBooks(value: unknown): Book[] {
         }
         if (item.proseCandidates !== undefined) chapter.proseCandidates = item.proseCandidates as Chapter['proseCandidates']
         if (item.proseCandidate !== undefined) chapter.proseCandidate = item.proseCandidate
+        const scenePlan = normalizeChapterScenePlan(item.scenePlan, chapter.updatedAt)
+        if (scenePlan) chapter.scenePlan = scenePlan
         return chapter
       })
     const lore = (Array.isArray(book.lore) ? book.lore : [])
@@ -398,7 +429,8 @@ export function importBookJson(value: unknown): Book {
         savedAt: version.savedAt, source: version.source }))) : []
     const chapter: Chapter = { id, title: item.title, outline: typeof item.outline === 'string' ? item.outline : '', content: item.content, updatedAt, history,
       wordGoal: typeof item.wordGoal === 'number' && Number.isFinite(item.wordGoal) && item.wordGoal > 0 ? Math.min(1000000, Math.round(item.wordGoal)) : undefined,
-      proseCandidates: item.proseCandidates, proseCandidate: item.proseCandidate }
+      proseCandidates: item.proseCandidates, proseCandidate: item.proseCandidate,
+      scenePlan: normalizeChapterScenePlan(item.scenePlan, updatedAt) }
     migrateProseCandidates(chapter)
     for (const candidate of chapter.proseCandidates || []) {
       candidate.id = uid()

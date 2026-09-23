@@ -14,6 +14,7 @@
           <p>把 TXT 文件拖到这里，或点击选择。分卷分章按「第N章 / 第N卷」标题行识别，正文里的回指句不会误切。</p>
           <button class="primary" type="button" @click="fileInput?.click()">选择 TXT 文件</button>
           <input ref="fileInput" type="file" accept=".txt,text/plain" hidden @change="handleTxtChange" />
+          <div v-if="props.initialBook" class="bd-rank-seed"><small>来自扫榜</small><strong>《{{ props.initialBook.title }}》</strong><span>{{ props.initialBook.author || '作者未知' }}</span><button class="secondary" type="button" @click="rankImportOpen = true">尝试抓取正文并拆书</button></div>
           <div class="bd-upload-actions">
             <button class="secondary" type="button" @click="jsonInput?.click()">导入拆书存档</button>
             <input ref="jsonInput" type="file" accept=".json,application/json" hidden @change="handleJsonChange" />
@@ -213,6 +214,16 @@
         <div class="modal-actions"><button class="secondary" @click="exportMarkdown(activeProject)">导出 Markdown</button><button class="primary" @click="showReport = false">完成</button></div>
       </section>
     </div>
+    <div v-if="rankImportOpen" class="overlay" @click.self="rankImportOpen = false">
+      <section class="modal preview-modal" role="dialog" aria-modal="true" aria-label="从榜单书籍创建拆书项目">
+        <div class="modal-head"><div><small>RANK → BREAKDOWN</small><h2>从榜单书籍创建拆书项目</h2></div><button class="icon-button" aria-label="关闭" @click="rankImportOpen = false">×</button></div>
+        <p class="modal-note">当前选中：{{ props.initialBook?.title }}。工作台会尝试读取公开页面中的正文；平台限制或页面结构变化时，请下载 TXT 后从上方导入。</p>
+        <label>书籍页面地址<input v-model="rankImportUrl" type="url" placeholder="https://fanqienovel.com/page/..." /></label>
+        <label>项目名称<input v-model="rankImportTitle" maxlength="120" /></label>
+        <p v-if="rankImportError" class="workflow-error" role="alert">{{ rankImportError }}</p>
+        <div class="modal-actions"><a class="secondary button-link" :href="rankImportUrl" target="_blank" rel="noreferrer">打开原文页面</a><button class="secondary" @click="rankImportOpen = false">取消</button><button class="primary" :disabled="rankImporting || !rankImportUrl.trim()" @click="fetchRankBook">{{ rankImporting ? '读取中…' : '尝试读取并创建项目' }}</button></div>
+      </section>
+    </div>
   </div>
 </template>
 
@@ -251,7 +262,9 @@ import {
 } from './breakdown'
 import { designSideStores } from './design-fixture'
 
-const props = defineProps<{ model: ModelSettings; dataEpoch?: number }>()
+interface RankBookSeed { title: string; author: string; url: string; bookId: string | null }
+const props = defineProps<{ model: ModelSettings; dataEpoch?: number; initialBook?: RankBookSeed | null }>()
+const emit = defineEmits<{ (event: 'clear-handoff'): void }>()
 
 const designPreview = import.meta.env.DEV && new URLSearchParams(location.search).has('ui-preview')
 // 设计预览下不读不写真实 localStorage，避免预览操作污染本机数据
@@ -300,6 +313,19 @@ const batchCount = ref(3)
 const controller = ref<AbortController | null>(null)
 const fileInput = ref<HTMLInputElement>()
 const jsonInput = ref<HTMLInputElement>()
+const rankImportOpen = ref(false)
+const rankImporting = ref(false)
+const rankImportUrl = ref('')
+const rankImportTitle = ref('')
+const rankImportError = ref('')
+
+watch(() => props.initialBook, value => {
+  if (!value) return
+  rankImportUrl.value = value.url
+  rankImportTitle.value = value.title
+  rankImportError.value = ''
+  rankImportOpen.value = true
+}, { immediate: true })
 
 const doneCount = (project: BreakdownProject) => project.chapters.filter(item => item.status === 'done').length
 
@@ -393,6 +419,40 @@ async function importTxt(file: File) {
   } catch (error) {
     listError.value = error instanceof Error ? error.message : String(error)
   }
+}
+
+function htmlToNovelText(raw: string): string {
+  if (!raw.includes('<')) return raw
+  const doc = new DOMParser().parseFromString(raw, 'text/html')
+  doc.querySelectorAll('script,style,noscript,nav,header,footer,aside').forEach(node => node.remove())
+  return (doc.querySelector('article,main,.小说内容,.chapter-content,.chapter-text,.content')?.textContent || doc.body.textContent || '').replace(/\u00a0/g, ' ').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim()
+}
+
+async function fetchRankBook() {
+  if (rankImporting.value || !rankImportUrl.value.trim()) return
+  rankImporting.value = true
+  rankImportError.value = ''
+  try {
+    const url = new URL(rankImportUrl.value.trim())
+    if (!['http:', 'https:'].includes(url.protocol)) throw new Error('只支持 http 或 https 书籍页面。')
+    const host = url.hostname.toLowerCase()
+    if (!['fanqienovel.com', 'www.qimao.com'].includes(host)) throw new Error('当前只为番茄和七猫榜单提供公开页面尝试读取；其他网站请先下载 TXT 再导入。')
+    const proxy = `/novel-proxy/${host}${url.pathname}${url.search}`
+    const response = await fetch(proxy)
+    const raw = await response.text()
+    if (!response.ok) throw new Error(`读取书籍页面失败（HTTP ${response.status}）。`)
+    const text = htmlToNovelText(raw)
+    if (text.length < 500) throw new Error('页面没有读取到足够正文。请从平台下载 TXT 后导入，或在下方打开原文页面。')
+    const parsed = parseTxtBook(text, rankImportTitle.value.trim() || props.initialBook?.title || '榜单书籍')
+    if (parsed.chapters.length < 1 || parsed.chapters.every(item => item.text.length < 120)) throw new Error('页面只包含书籍信息，没有可拆解的章节正文。请下载 TXT 后导入。')
+    const project = createBreakdownProject(parsed, props.initialBook?.author || '')
+    store.value = { ...store.value, projects: [project, ...store.value.projects].slice(0, 30) }
+    if (!persist()) return
+    rankImportOpen.value = false
+    emit('clear-handoff')
+    openProject(project.id)
+  } catch (error) { rankImportError.value = error instanceof Error ? error.message : String(error) }
+  finally { rankImporting.value = false }
 }
 
 function handleTxtChange(event: Event) {

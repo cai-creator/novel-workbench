@@ -12,7 +12,7 @@
         <button v-if="book && screen !== 'production'" class="quiet" @click="openProduction">逐章生文 <span class="top-count">{{ productionDoneCount }}/{{ book.chapters.length }}</span></button>
         <button v-if="screen !== 'breakdown'" class="quiet" @click="screen = 'breakdown'">竞品拆书</button>
         <button v-if="screen !== 'rank'" class="quiet" @click="screen = 'rank'">扫榜</button>
-        <button v-if="screen !== 'inspiration'" class="quiet" @click="openInspiration">灵感收集 <span class="top-count">{{ data.notes.length }}</span></button>
+        <button v-if="screen !== 'inspiration'" class="quiet" @click="openInspiration">资产库 <span class="top-count">{{ assetCount }}</span></button>
         <button v-if="screen !== 'stats'" class="quiet" @click="openStats">写作统计</button>
         <button class="quiet" @click="importInput?.click()">导入作品</button>
         <input ref="importInput" type="file" accept=".json,application/json" hidden @change="handleImport" />
@@ -77,8 +77,9 @@
 
     <main v-else-if="screen === 'inspiration'" class="notes-page">
       <div class="notes-shell">
-        <header class="notes-hero"><small>INSPIRATION · 灵感收集</small><h1>别让好念头溜走</h1><p>随手记下一句话、一个画面或一段对话。日后可以整理、检索，或直接送去建书。</p></header>
-        <div class="notes-layout">
+        <header class="notes-hero"><small>ASSET LIBRARY · 灵感与拆书资产</small><h1>把素材整理成可复用资产</h1><p>灵感、行文节奏、人物设定、世界观和金手指都集中在这里，随时可以送进建书流程。</p></header>
+        <nav class="asset-tabs" role="tablist" aria-label="资产类型"><button type="button" :class="{ active: assetView === 'inspiration' }" @click="assetView = 'inspiration'">灵感 <span>{{ data.notes.length }}</span></button><button type="button" :class="{ active: assetView === 'breakdown' }" @click="assetView = 'breakdown'">拆书资产 <span>{{ assetMaterialTotal }}</span></button></nav>
+        <div v-if="assetView === 'inspiration'" class="notes-layout">
           <section class="notes-composer">
             <div class="notes-composer-head"><small>{{ editingNoteId ? 'EDITING' : 'NEW NOTE' }}</small><h2>{{ editingNoteId ? '修改这条灵感' : '记下此刻的念头' }}</h2></div>
             <textarea v-model="noteDraft" class="notes-input" placeholder="例如：主角每次说谎，口袋里就会多一枚陌生的钥匙。" @keydown.ctrl.enter.prevent="saveNote" />
@@ -104,6 +105,21 @@
                 <div class="note-actions"><button class="secondary" @click="startEditNote(note)">编辑</button><button class="secondary" @click="sendNoteToWorkflow(note.id)">送去建书 →</button><button class="text-danger" @click="removeNote(note.id)">删除</button></div>
               </article>
             </div>
+          </section>
+        </div>
+        <div v-else class="asset-library-layout">
+          <aside class="asset-library-sidebar">
+            <div class="asset-filter-head"><small>BREAKDOWN MATERIALS</small><h2>拆书资产</h2><p>拆解完成后，素材会按用途自动归档。</p></div>
+            <label>来源项目<select v-model="assetProjectFilter"><option value="">全部项目</option><option v-for="project in breakdownStore.projects" :key="project.id" :value="project.id">{{ project.title }}</option></select></label>
+            <label>搜索资产<input v-model="assetQuery" type="search" placeholder="人物、节奏、设定、技巧" /></label>
+            <div class="asset-kind-chips"><button v-for="kind in breakdownMaterialKinds" :key="kind" type="button" :class="{ active: assetKindFilter === kind }" @click="assetKindFilter = assetKindFilter === kind ? '' : kind">{{ breakdownMaterialLabels[kind] }}</button></div>
+            <button class="primary asset-to-workflow" type="button" @click="openWorkflow">把资产带进建书 →</button>
+          </aside>
+          <section class="asset-library-main">
+            <div class="asset-library-head"><div><small>REUSABLE ASSETS</small><h2>{{ assetMaterialTotal }} 条可复用素材</h2></div><button class="secondary" type="button" @click="screen = 'breakdown'">去拆书 →</button></div>
+            <p v-if="!assetMaterialTotal" class="notes-empty"><span>◇</span>还没有拆书资产。先在拆书页导入一本 TXT 并完成几章拆解。</p>
+            <p v-else-if="!filteredAssetMaterials.length" class="notes-empty"><span>◇</span>没有符合筛选条件的资产。</p>
+            <div v-else class="asset-groups"><section v-for="kind in visibleAssetKinds" :key="kind" class="asset-group"><header><h3>{{ breakdownMaterialLabels[kind] }}<span>{{ groupedAssetMaterials[kind].length }}</span></h3><button class="secondary" type="button" :disabled="!groupedAssetMaterials[kind].length" @click="copyAssetGroup(kind)">复制本类</button></header><article v-for="item in groupedAssetMaterials[kind]" :key="`${item.projectId}-${item.kind}-${item.label}-${item.text}`" class="asset-card"><div class="asset-card-top"><strong>{{ item.label || breakdownMaterialLabels[item.kind] }}</strong><small>{{ item.projectTitle }} · {{ item.chapterTitle || '全书报告' }}</small></div><p>{{ item.text }}</p><div class="asset-card-actions"><button class="secondary" type="button" @click="copyAsset(item.text)">复制</button><button class="secondary" type="button" @click="sendAssetToWorkflow(item)">带入建书</button></div></article></section></div>
           </section>
         </div>
       </div>
@@ -146,9 +162,9 @@
       </div>
     </main>
 
-    <main v-else-if="screen === 'breakdown'" class="breakdown-page"><BreakdownView :model="modelForRole('text')" :data-epoch="dataEpoch" /></main>
+    <main v-else-if="screen === 'breakdown'" class="breakdown-page"><BreakdownView :model="modelForRole('text')" :data-epoch="dataEpoch" :initial-book="rankBreakdownSeed" @clear-handoff="rankBreakdownSeed = null" /></main>
 
-    <main v-else-if="screen === 'rank'" class="rank-page"><RankView :model="modelForRole('text')" :data-epoch="dataEpoch" /></main>
+    <main v-else-if="screen === 'rank'" class="rank-page"><RankView :model="modelForRole('text')" :data-epoch="dataEpoch" @breakdown-book="openRankBookForBreakdown" /></main>
 
     <main v-else-if="screen === 'production' && book" class="production-page">
       <div class="production-shell">
@@ -180,7 +196,7 @@
       <div class="shelf-inner">
         <section class="shelf-hero">
           <div><small>我的连载书房</small><h1>每一个故事，都有下一章。</h1><p>在这里整理作品，随时回到最近写下的那一章。</p>
-            <div class="shelf-hero-actions"><button class="primary large" @click="openWorkflow">✦ 工作流建书</button><button class="shelf-import" @click="openWorkflowHistory">建书记录 →</button><button class="shelf-import" @click="openInspiration">灵感收集 →</button><button class="shelf-import" @click="openStats">写作统计 →</button><button class="shelf-import" @click="addBook">手动创建 →</button><button class="shelf-import" @click="importInput?.click()">导入已有作品 →</button></div>
+              <div class="shelf-hero-actions"><button class="primary large" @click="openWorkflow">✦ 工作流建书</button><button class="shelf-import" @click="openWorkflowHistory">建书记录 →</button><button class="shelf-import" @click="openInspiration">资产库 →</button><button class="shelf-import" @click="openStats">写作统计 →</button><button class="shelf-import" @click="addBook">手动创建 →</button><button class="shelf-import" @click="importInput?.click()">导入已有作品 →</button></div>
           </div>
           <div class="shelf-hero-art" aria-hidden="true"><span>故</span><span>事</span><span>未</span><span>完</span></div>
         </section>
@@ -482,7 +498,7 @@ import TextDiff from './TextDiff.vue'
 import BreakdownView from './BreakdownView.vue'
 import RankView from './RankView.vue'
 import { breakdownMaterialKinds, breakdownMaterialLabels, countBreakdownMaterials, emptyStore as emptyBreakdownStore, formatBreakdownMaterials, loadBreakdownStore, saveBreakdownStore, type BreakdownMaterialKind, type BreakdownStore } from './breakdown'
-import { emptyRankStore, loadRankStore, pruneRankSnapshots, saveRankStore } from './rank'
+import { emptyRankStore, loadRankStore, pruneRankSnapshots, saveRankStore, type RankItem } from './rank'
 import { FONT_SIZE_RANGE, loadEditorPrefs, saveEditorPrefs } from './prefs'
 import { createBook, importBookJson, loadData, MAX_NOTES, now, recordChapterVersion, releaseCorruptDataProtection, saveData, takeCorruptDataNotice, uid, type Book, type ChatEntry, type Chapter, type ChapterVersion, type InspirationNote, type LoreMode, type Mode, type ModelProfile, type ModelSettings } from './storage'
 import { MODEL_PROVIDER_PRESETS, defaultModelDraft, fetchRemoteModelIds, providerPreset, parseExtraParams, type ModelProviderPreset } from './model'
@@ -499,7 +515,12 @@ const dataEpoch = ref(0)
 const importInput = ref<HTMLInputElement | null>(null)
 const workflowImportInput = ref<HTMLInputElement | null>(null)
 const previewPanel = designPreview ? new URLSearchParams(location.search).get('panel') : null
+const rankBreakdownSeed = ref<{ title: string; author: string; url: string; bookId: string | null } | null>(null)
 const screen = ref<'shelf' | 'editor' | 'workflow' | 'workflow-history' | 'production' | 'inspiration' | 'stats' | 'breakdown' | 'rank'>(previewPanel === 'workflow' ? 'workflow' : previewPanel === 'workflow-history' ? 'workflow-history' : previewPanel === 'production' || previewPanel === 'production-compare' ? 'production' : previewPanel === 'inspiration' ? 'inspiration' : previewPanel === 'stats' ? 'stats' : previewPanel === 'breakdown' ? 'breakdown' : previewPanel === 'rank' ? 'rank' : !data.value.books.length || previewPanel === 'shelf' ? 'shelf' : 'editor')
+function openRankBookForBreakdown(item: RankItem) {
+  rankBreakdownSeed.value = { title: item.bookTitle, author: item.authorName || '', url: item.bookUrl, bookId: item.bookId }
+  screen.value = 'breakdown'
+}
 function designWorkflowArchive(): WorkflowArchive {
   const draft = createWorkflowRecord({ ...emptyWorkflow(), step: 2, title: '星门长夜', genre: '东方奇幻', seed: '每个人在成年那天都能看见自己的终局。', idea: '一个看不见终局的少年，被帝国认定为灾厄。他必须在三十天内找出预言失效的原因。', outline: '第1章｜看不见的终局｜成人礼上，主角的命盘一片空白\n第2章｜追捕令｜帝国使者抵达村庄' })
   draft.id = 'design-workflow-draft'
@@ -733,6 +754,35 @@ const editingNoteId = ref('')
 const notesError = ref('')
 const showNotePicker = ref(false)
 const notePickerQuery = ref('')
+const assetView = ref<'inspiration' | 'breakdown'>('inspiration')
+const assetProjectFilter = ref('')
+const assetKindFilter = ref<BreakdownMaterialKind | ''>('')
+const assetQuery = ref('')
+type AssetMaterial = BreakdownStore['projects'][number]['materials'][BreakdownMaterialKind][number] & { projectId: string; projectTitle: string }
+const assetMaterials = computed<AssetMaterial[]>(() => breakdownStore.value.projects.flatMap(project => breakdownMaterialKinds.flatMap(kind => project.materials[kind].map(item => ({ ...item, projectId: project.id, projectTitle: project.title })))) )
+const filteredAssetMaterials = computed(() => {
+  const query = assetQuery.value.trim().toLocaleLowerCase()
+  return assetMaterials.value.filter(item => (!assetProjectFilter.value || item.projectId === assetProjectFilter.value) && (!assetKindFilter.value || item.kind === assetKindFilter.value) && (!query || `${item.label} ${item.text} ${item.projectTitle} ${item.chapterTitle}`.toLocaleLowerCase().includes(query)))
+})
+const groupedAssetMaterials = computed(() => Object.fromEntries(breakdownMaterialKinds.map(kind => [kind, filteredAssetMaterials.value.filter(item => item.kind === kind)])) as Record<BreakdownMaterialKind, AssetMaterial[]>)
+const visibleAssetKinds = computed(() => assetKindFilter.value ? [assetKindFilter.value] : breakdownMaterialKinds)
+const assetMaterialTotal = computed(() => assetMaterials.value.length)
+const assetCount = computed(() => data.value.notes.length + assetMaterialTotal.value)
+function copyAsset(text: string) {
+  if (!text.trim()) return
+  if (navigator.clipboard) void navigator.clipboard.writeText(text).catch(() => undefined)
+}
+function copyAssetGroup(kind: BreakdownMaterialKind) {
+  const text = groupedAssetMaterials.value[kind].map(item => `${item.label ? `${item.label}：` : ''}${item.text}（${item.projectTitle} · ${item.chapterTitle || '全书报告'}）`).join('\n')
+  copyAsset(text)
+}
+function sendAssetToWorkflow(item: AssetMaterial) {
+  const field: BreakdownPickerField = item.kind === 'character' ? 'characters' : item.kind === 'setting' ? 'world' : item.kind === 'outline' ? 'outline' : 'idea'
+  startNewWorkflow()
+  workflow.value[field] = `【${breakdownMaterialLabels[item.kind]} · ${item.projectTitle}】\n${item.text}`
+  workflow.value.step = field === 'idea' ? 1 : field === 'outline' ? 2 : 3
+  screen.value = 'workflow'
+}
 const noteTagList = computed(() => [...new Set(data.value.notes.flatMap(item => item.tags))].slice(0, 24))
 const filteredNotes = computed(() => {
   const query = noteQuery.value.trim().toLocaleLowerCase()
@@ -807,7 +857,7 @@ function pickNoteForSeed(id: string) {
   workflow.value.seed = note.content
   showNotePicker.value = false
 }
-function openInspiration() { screen.value = 'inspiration' }
+function openInspiration() { if (!designPreview) breakdownStore.value = loadBreakdownStore(); assetView.value = 'inspiration'; screen.value = 'inspiration' }
 
 // —— 写作统计 ——
 const statsSpanOptions = [7, 15, 30] as const

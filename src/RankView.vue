@@ -111,7 +111,7 @@
         <section class="rk-table-wrap">
           <table class="rk-table">
             <thead>
-              <tr><th>名次</th><th>书名</th><th>作者</th><th>分类</th><th>指标</th><th>名次变动</th><th>状态</th><th>最新章节</th></tr>
+              <tr><th>名次</th><th>书名</th><th>作者</th><th>分类</th><th>指标</th><th>名次变动</th><th>状态</th><th>最新章节</th><th>操作</th></tr>
             </thead>
             <tbody>
               <tr v-for="row in latest.list" :key="row.bookId || row.bookUrl">
@@ -129,6 +129,7 @@
                 <td class="rk-delta" :class="deltaTone(row.rankChangeDelta ?? row.rankChange)">{{ deltaText(row.rankChangeDelta ?? row.rankChange) }}</td>
                 <td>{{ row.statusText || '—' }}</td>
                 <td class="rk-last">{{ row.lastChapterTitle || '—' }}</td>
+                <td><button class="rk-breakdown-button" type="button" @click="emit('breakdown-book', row)">拆书</button></td>
               </tr>
             </tbody>
           </table>
@@ -327,6 +328,7 @@ import {
 import { designSideStores } from './design-fixture'
 
 const props = defineProps<{ model: ModelSettings; dataEpoch?: number }>()
+const emit = defineEmits<{ (event: 'breakdown-book', item: RankItem): void }>()
 
 const designPreview = import.meta.env.DEV && new URLSearchParams(location.search).has('ui-preview')
 // 设计预览下不读不写真实 localStorage，避免预览操作污染本机数据

@@ -703,6 +703,49 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .model-form-actions { align-items: flex-start; flex-direction: column; }
   .model-form-actions > div { justify-content: flex-start; }
 }
+
+.asset-tabs { display: flex; gap: 8px; margin: 0 0 18px; border-bottom: 1px solid #eadde4; }
+.asset-tabs button { border: 0; border-bottom: 2px solid transparent; padding: 10px 14px; color: #977184; background: transparent; cursor: pointer; font: inherit; }
+.asset-tabs button.active { border-bottom-color: #bd5f88; color: #9d3764; font-weight: 700; }
+.asset-tabs span { display: inline-block; min-width: 18px; margin-left: 4px; padding: 2px 5px; border-radius: 999px; background: #f6e9ef; font-size: 10px; }
+.asset-library-layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 18px; align-items: start; }
+.asset-library-sidebar, .asset-library-main { border: 1px solid #eee1e7; border-radius: 12px; background: #fff; padding: 16px; }
+.asset-library-sidebar { position: sticky; top: 18px; }
+.asset-filter-head h2, .asset-library-head h2 { margin: 4px 0; color: #432d3d; font-size: 18px; }
+.asset-filter-head p { margin: 0 0 16px; color: #aa91a0; font-size: 11px; line-height: 1.6; }
+.asset-library-sidebar label { display: flex; flex-direction: column; gap: 5px; margin-top: 12px; color: #765d6d; font-size: 12px; }
+.asset-library-sidebar select, .asset-library-sidebar input { border: 1px solid #e5d7df; border-radius: 7px; padding: 8px 9px; color: #4d3747; background: #fff; font: inherit; }
+.asset-kind-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+.asset-kind-chips button { border: 1px solid #eadbe4; border-radius: 999px; padding: 5px 8px; color: #96617b; background: #fff8fb; cursor: pointer; font-size: 10px; }
+.asset-kind-chips button.active, .asset-kind-chips button:hover { border-color: #c46f94; color: #9d3764; background: #fff0f6; }
+.asset-to-workflow { width: 100%; margin-top: 18px; }
+.asset-library-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.asset-groups { display: grid; gap: 16px; }
+.asset-group { border-top: 1px solid #f1e8ed; padding-top: 12px; }
+.asset-group > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 9px; }
+.asset-group h3 { margin: 0; color: #543448; font-size: 14px; }
+.asset-group h3 span { display: inline-block; margin-left: 6px; color: #b58a9d; font-size: 11px; }
+.asset-card { margin: 7px 0; padding: 11px 12px; border: 1px solid #eee1e7; border-radius: 9px; background: #fffafd; }
+.asset-card-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.asset-card-top strong { color: #4b3042; font-size: 12px; }
+.asset-card-top small { color: #ad91a2; font-size: 10px; }
+.asset-card p { margin: 7px 0; color: #674d5d; font-size: 12px; line-height: 1.7; white-space: pre-wrap; }
+.asset-card-actions { display: flex; gap: 7px; }
+.bd-rank-seed { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 5px 9px; margin-top: 14px; padding: 11px; border: 1px solid #ead6e1; border-radius: 9px; background: #fff8fb; }
+.bd-rank-seed small, .bd-rank-seed span { color: #a98b9e; font-size: 10px; }
+.bd-rank-seed strong { color: #4d3043; font-size: 12px; }
+.bd-rank-seed button { grid-column: 1 / -1; justify-self: start; }
+.button-link { display: inline-flex; align-items: center; text-decoration: none; }
+.rk-breakdown-button { border: 1px solid #e6c4d4; border-radius: 6px; padding: 5px 8px; color: #a13c68; background: #fff5f9; cursor: pointer; font-size: 11px; }
+.rk-breakdown-button:hover { border-color: #bd5f88; background: #ffeaf2; }
+@media (max-width: 760px) {
+  .asset-library-layout { grid-template-columns: 1fr; }
+  .asset-library-sidebar { position: static; }
+  .asset-card-top { display: block; }
+  .asset-card-top small { display: block; margin-top: 4px; }
+  .bd-rank-seed { grid-template-columns: 1fr; }
+  .bd-rank-seed button { grid-column: auto; }
+}
 @media (max-width: 700px) {
   .workflow-shell { width: calc(100% - 22px); padding-top: 12px; }
   .workflow-hero { padding: 25px 20px; }

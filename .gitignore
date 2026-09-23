@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .vite/
+.idea/
 .env
 .env.*
 !.env.example
@@ -9,3 +10,5 @@ dist/
 tests/
 BUG_FINDINGS.md
 PERFORMANCE_FINDINGS.md
+UI_DESIGN.md
+FEATURE_INVENTORY.md

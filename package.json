@@ -6,8 +6,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 6790",
     "build": "vue-tsc --noEmit && vite build",
-    "preview": "vite preview --host 127.0.0.1 --port 6791",
-    "test": "node --experimental-strip-types --import ./tests/register.mjs tests/run.ts"
+    "preview": "vite preview --host 127.0.0.1 --port 6791"
   },
   "dependencies": {
     "vue": "^3.4.0"

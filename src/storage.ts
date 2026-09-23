@@ -5,6 +5,7 @@ import { writeStorage } from './quota'
 
 export type Mode = 'prose' | 'world' | 'character' | 'plot'
 export type LoreMode = Exclude<Mode, 'prose'> | 'timeline'
+export type AiThinkingMode = 'off' | 'default' | 'on'
 
 export interface Chapter {
   id: string
@@ -70,6 +71,30 @@ export interface ModelSettings {
   baseUrl: string
   model: string
   apiKey: string
+  provider?: string
+  name?: string
+  maxContext?: number
+  maxOutputTokens?: number
+  thinking?: AiThinkingMode
+  extraParams?: string
+  profiles?: ModelProfile[]
+  textProfileId?: string
+  workflowProfileId?: string
+}
+
+export interface ModelProfile {
+  id: string
+  name: string
+  provider: string
+  baseUrl: string
+  model: string
+  apiKey: string
+  maxContext: number
+  maxOutputTokens: number
+  thinking: AiThinkingMode
+  extraParams: string
+  enabled: boolean
+  createdAt: string
 }
 
 export interface InspirationNote {
@@ -127,7 +152,7 @@ export function loadData(): ProjectData {
     } catch { /* 解析失败与结构不符都按损坏处理，走下面的暂存逻辑 */ }
     preserveCorruptData(raw)
   }
-  return { version: 2, books: [], model: { baseUrl: '', model: '', apiKey: '' }, stats: emptyStatsState(), notes: [] }
+  return { version: 2, books: [], model: { baseUrl: '', model: '', apiKey: '', profiles: [] }, stats: emptyStatsState(), notes: [] }
 }
 
 /** 损坏原文搬去暂存键：主键留给新的空状态，350ms 后的自动保存再也碰不到它 */
@@ -158,6 +183,35 @@ export function saveData(data: ProjectData): void {
 
 export const uid = () => crypto.randomUUID()
 export const now = () => new Date().toISOString()
+
+function validThinking(value: unknown): ModelProfile['thinking'] {
+  return value === 'off' || value === 'on' ? value : 'default'
+}
+
+/** 将旧版单模型配置升级为本地多模型库；不预置 Agnes，空配置仍保持空。 */
+export function normalizeModelSettings(value: unknown): ModelSettings {
+  const source = value && typeof value === 'object' ? value as Partial<ModelSettings> : {}
+  const profiles = Array.isArray(source.profiles)
+    ? source.profiles.filter(item => item && typeof item === 'object' && typeof item.id === 'string' && typeof item.baseUrl === 'string' && typeof item.model === 'string')
+      .slice(0, 30).map((item: Partial<ModelProfile>) => ({
+        id: item.id as string, name: typeof item.name === 'string' ? item.name : item.model as string,
+        provider: typeof item.provider === 'string' ? item.provider : 'custom', baseUrl: item.baseUrl as string, model: item.model as string,
+        apiKey: typeof item.apiKey === 'string' ? item.apiKey : '', maxContext: Number.isFinite(item.maxContext) ? Math.max(1024, Math.round(item.maxContext as number)) : 128000,
+        maxOutputTokens: Number.isFinite(item.maxOutputTokens) ? Math.max(128, Math.round(item.maxOutputTokens as number)) : 16384,
+        thinking: validThinking(item.thinking), extraParams: typeof item.extraParams === 'string' ? item.extraParams : '', enabled: item.enabled !== false,
+        createdAt: typeof item.createdAt === 'string' && Number.isFinite(Date.parse(item.createdAt)) ? item.createdAt : now(),
+      })) : []
+  if (!profiles.length && typeof source.baseUrl === 'string' && typeof source.model === 'string' && (source.baseUrl || source.model || source.apiKey)) {
+    profiles.push({ id: 'legacy-model', name: source.name || source.model || '旧版模型', provider: source.provider || 'custom', baseUrl: source.baseUrl as string, model: source.model as string,
+      apiKey: typeof source.apiKey === 'string' ? source.apiKey : '', maxContext: source.maxContext || 128000, maxOutputTokens: source.maxOutputTokens || 16384,
+      thinking: validThinking(source.thinking), extraParams: source.extraParams || '', enabled: true, createdAt: now() })
+  }
+  const active = profiles.find(item => item.id === source.textProfileId && item.enabled) || profiles.find(item => item.enabled)
+  const base = active || { baseUrl: typeof source.baseUrl === 'string' ? source.baseUrl : '', model: typeof source.model === 'string' ? source.model : '', apiKey: typeof source.apiKey === 'string' ? source.apiKey : '', provider: source.provider || 'custom', name: source.name || '', maxContext: source.maxContext || 128000, maxOutputTokens: source.maxOutputTokens || 16384, thinking: validThinking(source.thinking), extraParams: source.extraParams || '' }
+  return { baseUrl: base.baseUrl, model: base.model, apiKey: base.apiKey, provider: base.provider, name: base.name, maxContext: base.maxContext,
+    maxOutputTokens: base.maxOutputTokens, thinking: base.thinking, extraParams: base.extraParams, profiles,
+    textProfileId: active?.id || source.textProfileId, workflowProfileId: profiles.find(item => item.id === source.workflowProfileId && item.enabled)?.id || active?.id || source.workflowProfileId }
+}
 
 export function normalizeStats(value: unknown): StatsState {
   const state = emptyStatsState()
@@ -207,7 +261,7 @@ export function normalizeProjectData(value: unknown): ProjectData | null {
   return {
     version: 2,
     books: normalizeBooks(value.books),
-    model: value.model,
+    model: normalizeModelSettings(value.model),
     stats: normalizeStats(value.stats),
     notes: normalizeNotes(value.notes),
   }

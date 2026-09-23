@@ -18,7 +18,7 @@
         <input ref="importInput" type="file" accept=".json,application/json" hidden @change="handleImport" />
         <button class="quiet" @click="showBackup = true">备份与导出</button>
         <button v-if="screen === 'editor'" class="quiet" @click="exportBook" :disabled="!book">导出作品</button>
-        <button class="quiet" @click="showModel = true">模型设置</button>
+        <button class="quiet" @click="openModelSettings">模型设置<span v-if="activeModelLabel" class="top-count"> · {{ activeModelLabel }}</span></button>
       </div>
     </header>
 
@@ -146,9 +146,9 @@
       </div>
     </main>
 
-    <main v-else-if="screen === 'breakdown'" class="breakdown-page"><BreakdownView :model="data.model" :data-epoch="dataEpoch" /></main>
+    <main v-else-if="screen === 'breakdown'" class="breakdown-page"><BreakdownView :model="modelForRole('text')" :data-epoch="dataEpoch" /></main>
 
-    <main v-else-if="screen === 'rank'" class="rank-page"><RankView :model="data.model" :data-epoch="dataEpoch" /></main>
+    <main v-else-if="screen === 'rank'" class="rank-page"><RankView :model="modelForRole('text')" :data-epoch="dataEpoch" /></main>
 
     <main v-else-if="screen === 'production' && book" class="production-page">
       <div class="production-shell">
@@ -310,7 +310,7 @@
         <div class="welcome-cards">
           <button type="button" @click="addBook"><span>01</span><strong>开启新连载</strong><small>从书名和一句灵感开始</small></button>
           <button type="button" @click="importInput?.click()"><span>02</span><strong>导入已有作品</strong><small>继续写你的旧故事</small></button>
-          <button type="button" @click="showModel = true"><span>03</span><strong>设置创作助手</strong><small>连接你自己的模型</small></button>
+          <button type="button" @click="openModelSettings"><span>03</span><strong>设置创作助手</strong><small>连接你自己的模型</small></button>
         </div>
       </main>
     </div>
@@ -325,13 +325,21 @@
       </section>
     </div>
 
-    <div v-if="showModel" class="overlay" @click.self="showModel = false"><section class="modal settings-modal" role="dialog" aria-modal="true" aria-label="模型设置">
-      <div class="modal-head"><div><small>创作助手</small><h2>模型设置</h2></div><button class="icon-button" aria-label="关闭" @click="showModel = false">×</button></div>
-      <p class="modal-note">填写兼容 Chat Completions 的接口。地址和密钥只保存在当前浏览器中；浏览器直连需要服务商允许跨域请求。</p>
-      <button class="agnes-preset" type="button" @click="useAgnesPreset">使用 Agnes 3.0 Flash 官方接口预设 →</button>
-      <label>API 地址<input v-model.trim="data.model.baseUrl" placeholder="例如：https://apihub.agnes-ai.com/v1" /></label><label>模型 ID<input v-model.trim="data.model.model" placeholder="例如：agnes-3.0-flash" /></label><label>API Key<input v-model="data.model.apiKey" type="password" autocomplete="off" placeholder="填写服务商提供的 API Key" /></label>
-      <p v-if="modelTestStatus" class="model-test-status" role="status">{{ modelTestStatus }}</p>
-      <div class="modal-actions"><button class="secondary" :disabled="testingModel" @click="testModelConnection">{{ testingModel ? '正在测试…' : '测试连接' }}</button><button class="primary" @click="showModel = false">保存设置</button></div>
+    <div v-if="showModel" class="overlay" @click.self="showModel = false"><section class="modal model-manager-modal" role="dialog" aria-modal="true" aria-label="模型管理">
+      <div class="modal-head"><div><small>AI MODEL LIBRARY · 本机保存</small><h2>模型管理</h2></div><button class="icon-button" aria-label="关闭" @click="showModel = false">×</button></div>
+      <p class="modal-note">支持 OpenAI 兼容的文字模型。密钥只保存在当前浏览器；Agnes 需要手动选择，不会自动成为默认模型。</p>
+      <div class="model-provider-strip"><button v-for="preset in modelProviderPresets" :key="preset.provider" type="button" :class="{ active: modelDraft.provider === preset.provider }" @click="applyModelProvider(preset)"><strong>{{ preset.label }}</strong><small>{{ preset.description }}</small></button></div>
+      <div class="model-manager-grid">
+        <section class="model-form-card"><div class="model-card-title"><div><small>{{ modelDraft.id ? '编辑已保存模型' : '添加模型' }}</small><h3>{{ modelDraft.name || '新模型配置' }}</h3></div><button v-if="modelDraft.id" class="quiet" @click="resetModelDraft">改为新增</button></div>
+          <div class="model-form-grid"><label>模型名称<input v-model.trim="modelDraft.name" maxlength="80" placeholder="例如：我的 DeepSeek" /></label><label>模型 ID<input v-model.trim="modelDraft.model" maxlength="160" placeholder="例如：deepseek-chat" /></label><label class="wide">Base URL<input v-model.trim="modelDraft.baseUrl" maxlength="500" placeholder="https://api.example.com/v1" /></label><label>API Key<input v-model="modelDraft.apiKey" type="password" autocomplete="off" :placeholder="modelDraft.id ? '留空则保留原密钥' : '本地模型可留空'" /></label><label>最大上下文<input v-model.number="modelDraft.maxContext" type="number" min="1024" max="1000000" step="1024" /></label><label>最大输出 Tokens<input v-model.number="modelDraft.maxOutputTokens" type="number" min="128" :max="modelDraft.maxContext || 1000000" step="512" /></label><label>思考模式<select v-model="modelDraft.thinking"><option value="off">关闭</option><option value="default">跟随模型默认</option><option value="on">开启</option></select></label><label class="wide">额外请求参数 <small>JSON 对象，原样合并到请求体</small><textarea v-model="modelDraft.extraParams" rows="2" placeholder='例如：{"enable_thinking":false}' /></label></div>
+          <p v-if="modelError" class="model-test-status error" role="alert">{{ modelError }}</p><p v-if="modelTestStatus" class="model-test-status" role="status">{{ modelTestStatus }}</p>
+          <div class="model-form-actions"><label class="model-enabled"><input v-model="modelDraft.enabled" type="checkbox" />启用这个模型</label><div><button class="secondary" :disabled="testingModel || !modelDraft.baseUrl || !modelDraft.model" @click="testModelConnection">{{ testingModel ? '测试中…' : '测试连接' }}</button><button class="secondary" :disabled="remoteModelsLoading || !modelDraft.baseUrl" @click="fetchModelIds">{{ remoteModelsLoading ? '拉取中…' : '拉取模型列表' }}</button><button class="primary" :disabled="!modelDraft.model.trim()" @click="saveModelProfile">保存模型</button></div></div>
+          <div v-if="remoteModelIds.length" class="remote-model-list"><button v-for="id in remoteModelIds" :key="id" type="button" @click="modelDraft.model = id">{{ id }}</button></div>
+        </section>
+        <aside class="model-list-card"><div class="model-card-title"><div><small>SAVED MODELS</small><h3>我的模型 <span>{{ modelProfiles.length }}</span></h3></div><button class="quiet" @click="resetModelDraft">＋ 新增</button></div><p v-if="!modelProfiles.length" class="model-list-empty">还没有保存模型。先从上方选择一个服务商。</p><button v-for="profile in modelProfiles" :key="profile.id" type="button" class="model-profile-row" :class="{ active: profile.id === activeModelId }" @click="selectModelProfile(profile.id)"><span class="model-profile-main"><strong>{{ profile.name || profile.model }}</strong><small>{{ modelProviderLabel(profile.provider) }} · {{ profile.model || '未填写模型 ID' }}</small></span><span class="model-profile-status">{{ profile.enabled ? (profile.id === activeModelId ? '当前' : '启用') : '停用' }}</span><span class="model-profile-actions"><i @click.stop="editModelProfile(profile)">编辑</i><i @click.stop="toggleModelProfile(profile)">{{ profile.enabled ? '停用' : '启用' }}</i><i class="danger" @click.stop="deleteModelProfile(profile)">删除</i></span></button></aside>
+      </div>
+      <section class="model-defaults"><div><small>DEFAULT ROUTING</small><h3>默认模型</h3><p>可以给写作和工作流分别指定模型；未指定时使用当前模型。</p></div><label>写作助手<select v-model="data.model.textProfileId" @change="applySelectedRoleModel('text')"><option value="">当前模型</option><option v-for="profile in enabledModelProfiles" :key="profile.id" :value="profile.id">{{ profile.name || profile.model }}</option></select></label><label>工作流建书<select v-model="data.model.workflowProfileId" @change="applySelectedRoleModel('workflow')"><option value="">当前模型</option><option v-for="profile in enabledModelProfiles" :key="profile.id" :value="profile.id">{{ profile.name || profile.model }}</option></select></label></section>
+      <div class="modal-actions"><button class="secondary" @click="showModel = false">完成</button></div>
     </section></div>
 
     <div v-if="showPremise && book" class="overlay" @click.self="showPremise = false"><section class="modal" role="dialog" aria-modal="true" aria-label="故事概念"><div class="modal-head"><div><small>作品底稿</small><h2>故事概念</h2></div><button class="icon-button" aria-label="关闭" @click="showPremise = false">×</button></div><p class="modal-note">写下核心冲突、人物目标或一句话梗概。创作助手会把它纳入上下文。</p><textarea v-model="book.premise" class="modal-textarea" placeholder="例如：一个不愿成为英雄的人，被迫继承了会吞噬记忆的王国。" /><div class="modal-actions"><button class="primary" @click="showPremise = false">完成</button></div></section></div>
@@ -466,7 +474,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { generateChapterProse, generateDraft, refineSelection, requestChatCompletion, type SelectionAction } from './ai'
 import { BACKUP_SIZE_LIMIT, buildWorkspaceBackup, bookToTxt, chapterToTxt, mergeSideStores, mergeWorkflowRecords, mergeWorkspaceBackup, parseWorkspaceBackup, safeFileName, serializeWorkspaceBackup } from './backup'
 import { designFixture } from './design-fixture'
@@ -476,7 +484,8 @@ import RankView from './RankView.vue'
 import { breakdownMaterialKinds, breakdownMaterialLabels, countBreakdownMaterials, emptyStore as emptyBreakdownStore, formatBreakdownMaterials, loadBreakdownStore, saveBreakdownStore, type BreakdownMaterialKind, type BreakdownStore } from './breakdown'
 import { emptyRankStore, loadRankStore, pruneRankSnapshots, saveRankStore } from './rank'
 import { FONT_SIZE_RANGE, loadEditorPrefs, saveEditorPrefs } from './prefs'
-import { createBook, importBookJson, loadData, MAX_NOTES, now, recordChapterVersion, releaseCorruptDataProtection, saveData, takeCorruptDataNotice, uid, type Book, type ChatEntry, type Chapter, type ChapterVersion, type InspirationNote, type LoreMode, type Mode } from './storage'
+import { createBook, importBookJson, loadData, MAX_NOTES, now, recordChapterVersion, releaseCorruptDataProtection, saveData, takeCorruptDataNotice, uid, type Book, type ChatEntry, type Chapter, type ChapterVersion, type InspirationNote, type LoreMode, type Mode, type ModelProfile, type ModelSettings } from './storage'
+import { MODEL_PROVIDER_PRESETS, defaultModelDraft, fetchRemoteModelIds, providerPreset, parseExtraParams, type ModelProviderPreset } from './model'
 import { currentStreak, dateKey, heatLevel, monthMatrix, pruneStatsBooks, recordWords, totalsFor, trendSeries } from './stats'
 import { buildBookFromWorkflow, createWorkflowRecord, emptyWorkflow, exportWorkflowArchive, importWorkflowArchive, loadWorkflowArchive, MAX_WORKFLOW_RECORDS, parseChapterPlan, saveWorkflowArchive, workflowPrompt, type WorkflowArchive, type WorkflowDraft, type WorkflowField, type WorkflowRecord } from './workflow'
 import { assertStorageFits, onQuotaWarning } from './quota'
@@ -1020,7 +1029,7 @@ async function runSelectionAction(action: SelectionAction) {
   const requestController = new AbortController()
   selectionController = requestController
   try {
-    const replacement = await refineSelection({ model: data.value.model, book: book.value, chapterId: chapter.value.id, action, text: bubble.text, instruction, signal: requestController.signal })
+    const replacement = await refineSelection({ model: modelForRole('text'), book: book.value, chapterId: chapter.value.id, action, text: bubble.text, instruction, signal: requestController.signal })
     if (requestController.signal.aborted) return
     selectionSuggestion.value = { bookId: book.value.id, chapterId: chapter.value.id, start: bubble.start, end: bubble.end, original: bubble.text, replacement, label: selectionActions.find(item => item.id === action)?.label || 'AI' }
     selectionBubble.value = null
@@ -1071,9 +1080,14 @@ const instruction = ref('')
 const showCreateBook = ref(false)
 const newBookTitle = ref('')
 const newBookPremise = ref('')
-const showModel = ref(false)
+const showModel = ref(designPreview && new URLSearchParams(location.search).get('panel') === 'model')
 const testingModel = ref(false)
 const modelTestStatus = ref('')
+const modelError = ref('')
+const remoteModelsLoading = ref(false)
+const remoteModelIds = ref<string[]>([])
+const modelProviderPresets = MODEL_PROVIDER_PRESETS
+const modelDraft = reactive<ModelProfile>({ id: '', createdAt: now(), ...defaultModelDraft() })
 const showPremise = ref(false)
 const showLore = ref(false)
 const aiError = ref('')
@@ -1086,6 +1100,148 @@ const preview = ref<{ bookId: string; entryId: string; mode: Mode; content: stri
 )
 let controller: AbortController | null = null
 let saveTimer: ReturnType<typeof setTimeout> | null = null
+
+const modelProfiles = computed(() => data.value.model.profiles || [])
+const enabledModelProfiles = computed(() => modelProfiles.value.filter(profile => profile.enabled && profile.baseUrl.trim() && profile.model.trim()))
+const activeModelId = computed(() => data.value.model.textProfileId || enabledModelProfiles.value[0]?.id || '')
+const activeModelLabel = computed(() => {
+  const profile = modelProfiles.value.find(item => item.id === activeModelId.value)
+  return profile?.name || profile?.model || data.value.model.name || data.value.model.model || ''
+})
+
+function ensureModelProfiles() {
+  if (!Array.isArray(data.value.model.profiles)) data.value.model.profiles = []
+  const profiles = data.value.model.profiles
+  const enabled = profiles.find(profile => profile.enabled && profile.baseUrl.trim() && profile.model.trim())
+  if (!data.value.model.textProfileId || !profiles.some(profile => profile.id === data.value.model.textProfileId && profile.enabled)) data.value.model.textProfileId = enabled?.id
+  if (!data.value.model.workflowProfileId || !profiles.some(profile => profile.id === data.value.model.workflowProfileId && profile.enabled)) data.value.model.workflowProfileId = data.value.model.textProfileId
+}
+
+function profileAsSettings(profile: ModelProfile): ModelSettings {
+  return { ...data.value.model, ...profile, profiles: data.value.model.profiles, textProfileId: data.value.model.textProfileId, workflowProfileId: data.value.model.workflowProfileId }
+}
+
+function syncLegacyModel(profile?: ModelProfile) {
+  if (!profile) return
+  data.value.model = { ...data.value.model, ...profile, name: profile.name, provider: profile.provider, baseUrl: profile.baseUrl, model: profile.model, apiKey: profile.apiKey, maxContext: profile.maxContext, maxOutputTokens: profile.maxOutputTokens, thinking: profile.thinking, extraParams: profile.extraParams }
+}
+
+function modelForRole(role: 'text' | 'workflow'): ModelSettings {
+  const id = role === 'workflow' ? data.value.model.workflowProfileId : data.value.model.textProfileId
+  const profile = enabledModelProfiles.value.find(item => item.id === id)
+  return profile ? profileAsSettings(profile) : data.value.model
+}
+
+function copyProfileToDraft(profile?: ModelProfile) {
+  const source = profile || ({ id: '', createdAt: now(), ...defaultModelDraft(), ...data.value.model } as ModelProfile)
+  Object.assign(modelDraft, { id: source.id || '', createdAt: source.createdAt || now(), name: source.name || '', provider: source.provider || providerPreset(source.provider || '').provider, baseUrl: source.baseUrl || '', model: source.model || '', apiKey: source.apiKey || '', maxContext: source.maxContext || 128000, maxOutputTokens: source.maxOutputTokens || 8192, thinking: source.thinking || 'default', extraParams: source.extraParams || '', enabled: source.enabled !== false })
+  modelError.value = ''
+  modelTestStatus.value = ''
+  remoteModelIds.value = []
+}
+
+function resetModelDraft() {
+  copyProfileToDraft()
+  modelDraft.id = ''
+  modelDraft.createdAt = now()
+  Object.assign(modelDraft, defaultModelDraft())
+}
+
+function openModelSettings() {
+  ensureModelProfiles()
+  const current = modelProfiles.value.find(profile => profile.id === activeModelId.value) || modelProfiles.value.find(profile => profile.enabled)
+  copyProfileToDraft(current)
+  showModel.value = true
+}
+
+function applyModelProvider(preset: ModelProviderPreset) {
+  modelDraft.provider = preset.provider
+  modelDraft.baseUrl = preset.baseUrl
+  modelDraft.maxContext = preset.maxContext
+  modelDraft.maxOutputTokens = preset.maxOutputTokens
+  modelDraft.thinking = preset.thinking
+  if (!modelDraft.name || modelDraft.name === modelDraft.model) modelDraft.name = ''
+  modelError.value = ''
+}
+
+function modelProviderLabel(provider: string) { return providerPreset(provider).label }
+
+function draftAsProfile(): ModelProfile {
+  const extraParams = modelDraft.extraParams.trim()
+  parseExtraParams(extraParams)
+  const existing = modelProfiles.value.find(profile => profile.id === modelDraft.id)
+  const apiKey = modelDraft.apiKey.trim() || existing?.apiKey || ''
+  const maxContext = Math.max(1024, Math.round(Number(modelDraft.maxContext) || 128000))
+  const maxOutputTokens = Math.max(128, Math.min(maxContext, Math.round(Number(modelDraft.maxOutputTokens) || 8192)))
+  return { id: modelDraft.id || uid(), createdAt: existing?.createdAt || modelDraft.createdAt || now(), name: modelDraft.name.trim() || `${modelProviderLabel(modelDraft.provider)} · ${modelDraft.model.trim()}`, provider: modelDraft.provider, baseUrl: modelDraft.baseUrl.trim().replace(/\/+$/, ''), model: modelDraft.model.trim(), apiKey, maxContext, maxOutputTokens, thinking: modelDraft.thinking, extraParams, enabled: modelDraft.enabled }
+}
+
+function saveModelProfile() {
+  modelError.value = ''
+  if (!modelDraft.baseUrl.trim()) { modelError.value = '请填写 API 地址。'; return }
+  if (!modelDraft.model.trim()) { modelError.value = '请填写模型 ID。'; return }
+  try {
+    const profile = draftAsProfile()
+    const profiles = [...modelProfiles.value]
+    const index = profiles.findIndex(item => item.id === profile.id)
+    if (index >= 0) profiles.splice(index, 1, profile)
+    else profiles.unshift(profile)
+    data.value.model.profiles = profiles
+    if (!data.value.model.textProfileId || !profiles.some(item => item.id === data.value.model.textProfileId && item.enabled)) data.value.model.textProfileId = profile.enabled ? profile.id : profiles.find(item => item.enabled)?.id
+    if (!data.value.model.workflowProfileId || !profiles.some(item => item.id === data.value.model.workflowProfileId && item.enabled)) data.value.model.workflowProfileId = data.value.model.textProfileId
+    syncLegacyModel(profiles.find(item => item.id === data.value.model.textProfileId) || profile)
+    copyProfileToDraft(profile)
+    modelTestStatus.value = `已保存「${profile.name}」，写作与工作流默认模型可在下方分别指定。`
+    flushSave()
+  } catch (error) { modelError.value = error instanceof Error ? error.message : String(error) }
+}
+
+function selectModelProfile(id: string) {
+  const profile = modelProfiles.value.find(item => item.id === id && item.enabled)
+  if (!profile) return
+  data.value.model.textProfileId = profile.id
+  syncLegacyModel(profile)
+  copyProfileToDraft(profile)
+  modelTestStatus.value = `已切换到「${profile.name || profile.model}」。`
+  flushSave()
+}
+
+function editModelProfile(profile: ModelProfile) { copyProfileToDraft(profile) }
+
+function toggleModelProfile(profile: ModelProfile) {
+  profile.enabled = !profile.enabled
+  ensureModelProfiles()
+  const active = modelProfiles.value.find(item => item.id === data.value.model.textProfileId)
+  if (active) syncLegacyModel(active)
+  flushSave()
+}
+
+function deleteModelProfile(profile: ModelProfile) {
+  if (!confirm(`确定删除「${profile.name || profile.model}」吗？`)) return
+  data.value.model.profiles = modelProfiles.value.filter(item => item.id !== profile.id)
+  ensureModelProfiles()
+  const active = modelProfiles.value.find(item => item.id === data.value.model.textProfileId)
+  if (active) syncLegacyModel(active)
+  resetModelDraft()
+  flushSave()
+}
+
+function applySelectedRoleModel(role: 'text' | 'workflow') {
+  ensureModelProfiles()
+  const id = role === 'text' ? data.value.model.textProfileId : data.value.model.workflowProfileId
+  const profile = modelProfiles.value.find(item => item.id === id && item.enabled)
+  if (profile) syncLegacyModel(profile)
+  flushSave()
+}
+
+async function fetchModelIds() {
+  if (remoteModelsLoading.value) return
+  remoteModelsLoading.value = true
+  modelError.value = ''
+  try { remoteModelIds.value = await fetchRemoteModelIds({ ...data.value.model, ...modelDraft }, new AbortController().signal); modelTestStatus.value = `已找到 ${remoteModelIds.value.length} 个模型，可点击模型 ID 填入。` }
+  catch (error) { modelError.value = error instanceof Error ? error.message : String(error) }
+  finally { remoteModelsLoading.value = false }
+}
 
 watch(data, () => {
   if (designPreview) return
@@ -1264,7 +1420,7 @@ async function generateWorkflow(field: WorkflowField) {
   workflowController = requestController
   const prompt = workflowPrompt(field, workflow.value)
   try {
-    const text = await requestChatCompletion({ model: data.value.model, system: prompt.system, user: prompt.user, signal: requestController.signal, maxTokens: field === 'title' ? 80 : field === 'outline' ? 2400 : 1100 })
+    const text = await requestChatCompletion({ model: modelForRole('workflow'), system: prompt.system, user: prompt.user, signal: requestController.signal, maxTokens: field === 'title' ? 80 : field === 'outline' ? 2400 : 1100 })
     if (screen.value === 'workflow' && workflowArchive.value.activeId === requestRecordId && workflowController === requestController) workflowCandidate.value = { field, text }
   } catch (error) { if (screen.value === 'workflow' && workflowArchive.value.activeId === requestRecordId && workflowController === requestController) workflowError.value = error instanceof Error ? error.message : String(error) }
   finally { if (workflowController === requestController) { workflowBusy.value = false; workflowController = null } }
@@ -1297,21 +1453,18 @@ function finishWorkflow() {
     flushSave()
   } catch (error) { workflowError.value = error instanceof Error ? error.message : String(error) }
 }
-function useAgnesPreset() {
-  data.value.model.baseUrl = 'https://apihub.agnes-ai.com/v1'
-  data.value.model.model = 'agnes-3.0-flash'
-  modelTestStatus.value = '已填入 Agnes 3.0 Flash 的官方 API 地址和模型 ID，请填写 API Key 后测试连接。'
-}
 async function testModelConnection() {
   if (testingModel.value) return
   testingModel.value = true
+  modelError.value = ''
   modelTestStatus.value = '正在测试连接…'
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 15000)
   try {
-    await requestChatCompletion({ model: data.value.model, system: '你是连接测试助手。', user: '请只回复“连接成功”。', maxTokens: 24, signal: controller.signal })
+    const settings = { ...data.value.model, ...modelDraft } as ModelSettings
+    await requestChatCompletion({ model: settings, system: '你是连接测试助手。', user: '请只回复“连接成功”。', maxTokens: 24, signal: controller.signal })
     modelTestStatus.value = '连接成功，模型已返回内容。'
-  } catch (error) { modelTestStatus.value = controller.signal.aborted ? '连接测试超过 15 秒，请检查 API 地址、网络或浏览器跨域限制。' : error instanceof Error ? error.message : String(error) }
+  } catch (error) { modelError.value = controller.signal.aborted ? '连接测试超过 15 秒，请检查 API 地址、网络或浏览器跨域限制。' : error instanceof Error ? error.message : String(error) }
   finally { clearTimeout(timeout); testingModel.value = false }
 }
 
@@ -1359,7 +1512,7 @@ async function generateProduction() {
   productionError.value = ''
   let truncated = false
   try {
-    const content = await generateChapterProse({ model: data.value.model, book: targetBook, chapterId: targetChapter.id, instruction, targetLength: productionLength.value, kind, signal: requestController.signal, onTruncated: (message) => { truncated = true; showToast(message) } })
+    const content = await generateChapterProse({ model: modelForRole('text'), book: targetBook, chapterId: targetChapter.id, instruction, targetLength: productionLength.value, kind, signal: requestController.signal, onTruncated: (message) => { truncated = true; showToast(message) } })
     if (requestController.signal.aborted) return
     if (!data.value.books.some(item => item.id === targetBook.id) || !targetBook.chapters.some(item => item.id === targetChapter.id)) return
     const candidate = { id: uid(), content, instruction: truncated ? `${instruction ? `${instruction}；` : ''}输出被截断，未写完` : instruction, createdAt: now(), baseUpdatedAt, kind }
@@ -1498,7 +1651,7 @@ async function send() {
   target.chat.push({ id: uid(), role: 'user', mode: taskMode, content: promptText, chapterId })
   instruction.value = ''
   try {
-    const content = await generateDraft({ model: data.value.model, book: target, chapterId, mode: taskMode, instruction: promptText, signal: controller.signal })
+    const content = await generateDraft({ model: modelForRole('text'), book: target, chapterId, mode: taskMode, instruction: promptText, signal: controller.signal })
     const entry: ChatEntry = { id: uid(), role: 'assistant', mode: taskMode, content, chapterId }
     target.chat.push(entry)
     openPreview(entry, chapterId, target.id)
@@ -1583,7 +1736,7 @@ function downloadText(filename: string, text: string, mime: string) {
 function exportWorkspaceBackup() {
   // 勾「不含密钥」时导出的备份不写模型密钥：适合发群/云盘的场合
   const payloadData = backupExcludeKey.value
-    ? { ...data.value, model: { ...data.value.model, apiKey: '' } }
+    ? { ...data.value, model: { ...data.value.model, apiKey: '', profiles: data.value.model.profiles?.map(profile => ({ ...profile, apiKey: '' })) } }
     : data.value
   const backup = buildWorkspaceBackup(payloadData, workflowArchive.value, new Date().toISOString(), {
     rank: loadRankStore().snapshots,

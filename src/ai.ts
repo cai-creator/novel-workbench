@@ -1,4 +1,5 @@
 import type { Book, Mode, ModelSettings } from './storage'
+import { chatEndpoint, modelRequestBody } from './model'
 
 function responseText(value: unknown): string {
   if (typeof value === 'string') return value
@@ -7,12 +8,6 @@ function responseText(value: unknown): string {
     part && typeof part === 'object' && 'text' in part ? String(part.text) : ''
   ).join('')
   return ''
-}
-
-function endpoint(baseUrl: string): string {
-  const clean = baseUrl.trim().replace(/\/+$/, '')
-  if (!/^https?:\/\//i.test(clean)) throw new Error('请填写完整的 API 地址，例如 https://example.com/v1')
-  return clean.endsWith('/chat/completions') ? clean : `${clean}/chat/completions`
 }
 
 export async function requestChatCompletion(args: {
@@ -26,7 +21,7 @@ export async function requestChatCompletion(args: {
 }): Promise<string> {
   const { model, system, user, signal, maxTokens } = args
   if (!model.model.trim()) throw new Error('请先在模型设置中填写模型 ID')
-  const url = endpoint(model.baseUrl)
+  const url = chatEndpoint(model.baseUrl)
   let response: Response
   try {
     response = await fetch(url, {
@@ -35,12 +30,7 @@ export async function requestChatCompletion(args: {
         'Content-Type': 'application/json',
         ...(model.apiKey.trim() ? { Authorization: `Bearer ${model.apiKey.trim()}` } : {}),
       },
-      body: JSON.stringify({
-        model: model.model.trim(),
-        messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-        ...(maxTokens ? { max_tokens: maxTokens } : {}),
-        stream: false,
-      }),
+      body: JSON.stringify(modelRequestBody({ model, messages: [{ role: 'system', content: system }, { role: 'user', content: user }], maxTokens, stream: false })),
       signal,
     })
   } catch (error) {

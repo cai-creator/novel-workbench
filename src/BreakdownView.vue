@@ -14,7 +14,7 @@
           <p>把 TXT 文件拖到这里，或点击选择。分卷分章按「第N章 / 第N卷」标题行识别，正文里的回指句不会误切。</p>
           <button class="primary" type="button" @click="fileInput?.click()">选择 TXT 文件</button>
           <input ref="fileInput" type="file" accept=".txt,text/plain" hidden @change="handleTxtChange" />
-          <div v-if="props.initialBook" class="bd-rank-seed"><small>来自扫榜</small><strong>《{{ props.initialBook.title }}》</strong><span>{{ props.initialBook.author || '作者未知' }}</span><button class="secondary" type="button" @click="rankImportOpen = true">尝试抓取正文并拆书</button></div>
+          <div v-if="props.initialBook" class="bd-rank-seed"><small>来自扫榜</small><strong>《{{ props.initialBook.title }}》</strong><span>{{ props.initialBook.author || '作者未知' }}</span><button class="secondary" type="button" @click="rankImportOpen = true">连接番茄下载器</button></div>
           <div class="bd-upload-actions">
             <button class="secondary" type="button" @click="jsonInput?.click()">导入拆书存档</button>
             <input ref="jsonInput" type="file" accept=".json,application/json" hidden @change="handleJsonChange" />
@@ -217,11 +217,22 @@
     <div v-if="rankImportOpen" class="overlay" @click.self="rankImportOpen = false">
       <section class="modal preview-modal" role="dialog" aria-modal="true" aria-label="从榜单书籍创建拆书项目">
         <div class="modal-head"><div><small>RANK → BREAKDOWN</small><h2>从榜单书籍创建拆书项目</h2></div><button class="icon-button" aria-label="关闭" @click="rankImportOpen = false">×</button></div>
-        <p class="modal-note">当前选中：{{ props.initialBook?.title }}。工作台会尝试读取公开页面中的正文；平台限制或页面结构变化时，请下载 TXT 后从上方导入。</p>
-        <label>书籍页面地址<input v-model="rankImportUrl" type="url" placeholder="https://fanqienovel.com/page/..." /></label>
+        <p class="modal-note">当前选中：{{ props.initialBook?.title }}。工作台通过本机运行的 Tomato-Novel-Downloader Web API 预览书籍并创建下载任务，不解析网页。下载完成后，在番茄下载器的文件库中下载 TXT，再回到这里导入。</p>
+        <div class="tomato-settings-grid">
+          <label>番茄下载器地址<input v-model="tomatoSettings.baseUrl" type="url" placeholder="http://127.0.0.1:18423" /></label>
+          <label>访问密码（可选）<input v-model="tomatoSettings.password" type="password" autocomplete="off" placeholder="未设置可留空" /></label>
+        </div>
+        <div class="tomato-actions"><button class="secondary" :disabled="tomatoChecking" @click="checkTomato">{{ tomatoChecking ? '连接中…' : '检查连接' }}</button><span v-if="tomatoStatus" :class="tomatoConnected ? 'tomato-ok' : 'tomato-bad'">{{ tomatoStatus }}</span></div>
+        <section v-if="tomatoPreview" class="tomato-preview">
+          <strong>《{{ tomatoPreview.title || props.initialBook?.title }}》</strong><span>{{ tomatoPreview.author || props.initialBook?.author || '作者未知' }} · {{ tomatoPreview.chapterCount || '未知' }} 章</span>
+          <p v-if="tomatoPreview.description">{{ tomatoPreview.description }}</p>
+        </section>
+        <div class="tomato-range"><label>起始章节（可选）<input v-model.number="tomatoRangeStart" type="number" min="1" :max="tomatoPreview?.chapterCount || undefined" placeholder="1" /></label><label>结束章节（可选）<input v-model.number="tomatoRangeEnd" type="number" min="1" :max="tomatoPreview?.chapterCount || undefined" placeholder="全书" /></label></div>
+        <div v-if="tomatoJob" class="tomato-job" role="status"><div><strong>下载任务 #{{ tomatoJob.id }}</strong><span>{{ tomatoStateLabel(tomatoJob.state) }}</span></div><div class="tomato-progress"><i :style="{ width: `${tomatoJob.progress.percent}%` }"></i></div><small>{{ tomatoJob.progress.total ? `${tomatoJob.progress.current}/${tomatoJob.progress.total} 章` : (tomatoJob.message || '等待下载器响应') }}</small></div>
+        <div v-if="tomatoDownloads.length" class="tomato-downloads"><strong>可导入文件</strong><a v-for="item in tomatoDownloads" :key="item.relPath" :href="tomatoDownloadUrl(tomatoSettings, item.relPath)" target="_blank" rel="noreferrer">下载 {{ item.name }}</a></div>
         <label>项目名称<input v-model="rankImportTitle" maxlength="120" /></label>
         <p v-if="rankImportError" class="workflow-error" role="alert">{{ rankImportError }}</p>
-        <div class="modal-actions"><a class="secondary button-link" :href="rankImportUrl" target="_blank" rel="noreferrer">打开原文页面</a><button class="secondary" @click="rankImportOpen = false">取消</button><button class="primary" :disabled="rankImporting || !rankImportUrl.trim()" @click="fetchRankBook">{{ rankImporting ? '读取中…' : '尝试读取并创建项目' }}</button></div>
+        <div class="modal-actions"><button class="secondary" @click="rankImportOpen = false">关闭</button><button class="primary" :disabled="rankImporting || !props.initialBook?.bookId" @click="createTomatoDownload">{{ rankImporting ? '创建中…' : tomatoJob ? '重新创建下载任务' : '预览并创建下载任务' }}</button></div>
       </section>
     </div>
   </div>
@@ -261,6 +272,20 @@ import {
   type BreakdownProject,
 } from './breakdown'
 import { designSideStores } from './design-fixture'
+import {
+  checkTomatoService,
+  createTomatoJob,
+  getTomatoJob,
+  listTomatoLibrary,
+  loadTomatoSettings,
+  previewTomatoBook,
+  saveTomatoSettings,
+  tomatoDownloadUrl,
+  type TomatoBookPreview,
+  type TomatoJob,
+  type TomatoLibraryItem,
+  type TomatoSettings,
+} from './tomato'
 
 interface RankBookSeed { title: string; author: string; url: string; bookId: string | null }
 const props = defineProps<{ model: ModelSettings; dataEpoch?: number; initialBook?: RankBookSeed | null }>()
@@ -315,15 +340,28 @@ const fileInput = ref<HTMLInputElement>()
 const jsonInput = ref<HTMLInputElement>()
 const rankImportOpen = ref(false)
 const rankImporting = ref(false)
-const rankImportUrl = ref('')
 const rankImportTitle = ref('')
 const rankImportError = ref('')
+const tomatoSettings = ref<TomatoSettings>(loadTomatoSettings())
+const tomatoChecking = ref(false)
+const tomatoConnected = ref(false)
+const tomatoStatus = ref('')
+const tomatoPreview = ref<TomatoBookPreview | null>(null)
+const tomatoJob = ref<TomatoJob | null>(null)
+const tomatoDownloads = ref<TomatoLibraryItem[]>([])
+const tomatoRangeStart = ref<number | undefined>()
+const tomatoRangeEnd = ref<number | undefined>()
+let tomatoPollTimer: number | null = null
 
 watch(() => props.initialBook, value => {
   if (!value) return
-  rankImportUrl.value = value.url
   rankImportTitle.value = value.title
   rankImportError.value = ''
+  tomatoPreview.value = null
+  tomatoJob.value = null
+  tomatoDownloads.value = []
+  tomatoRangeStart.value = undefined
+  tomatoRangeEnd.value = undefined
   rankImportOpen.value = true
 }, { immediate: true })
 
@@ -421,36 +459,63 @@ async function importTxt(file: File) {
   }
 }
 
-function htmlToNovelText(raw: string): string {
-  if (!raw.includes('<')) return raw
-  const doc = new DOMParser().parseFromString(raw, 'text/html')
-  doc.querySelectorAll('script,style,noscript,nav,header,footer,aside').forEach(node => node.remove())
-  return (doc.querySelector('article,main,.小说内容,.chapter-content,.chapter-text,.content')?.textContent || doc.body.textContent || '').replace(/\u00a0/g, ' ').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim()
+function tomatoStateLabel(state: string) {
+  const labels: Record<string, string> = { Queued: '排队中', Running: '下载中', Done: '已完成', Failed: '失败', Canceled: '已取消' }
+  return labels[state] || state
 }
 
-async function fetchRankBook() {
-  if (rankImporting.value || !rankImportUrl.value.trim()) return
+async function checkTomato() {
+  tomatoChecking.value = true
+  tomatoStatus.value = ''
+  try {
+    saveTomatoSettings(tomatoSettings.value)
+    await checkTomatoService(tomatoSettings.value)
+    tomatoConnected.value = true
+    tomatoStatus.value = '已连接本机番茄下载器'
+    if (props.initialBook?.bookId) tomatoPreview.value = await previewTomatoBook(tomatoSettings.value, props.initialBook.bookId)
+  } catch (error) {
+    tomatoConnected.value = false
+    tomatoStatus.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    tomatoChecking.value = false
+  }
+}
+
+function stopTomatoPolling() {
+  if (tomatoPollTimer !== null) window.clearTimeout(tomatoPollTimer)
+  tomatoPollTimer = null
+}
+
+async function pollTomatoJob(id: number) {
+  stopTomatoPolling()
+  try {
+    const job = await getTomatoJob(tomatoSettings.value, id)
+    if (!job) return
+    tomatoJob.value = job
+    if (job.state === 'Done') {
+      tomatoStatus.value = '下载完成，请下载 TXT 后导入拆书'
+      tomatoDownloads.value = (await listTomatoLibrary(tomatoSettings.value)).filter(item => item.kind === 'file' && item.ext === 'txt').slice(0, 8)
+      return
+    }
+    if (['Failed', 'Canceled'].includes(job.state)) return
+    tomatoPollTimer = window.setTimeout(() => void pollTomatoJob(id), 1800)
+  } catch (error) {
+    rankImportError.value = error instanceof Error ? error.message : String(error)
+  }
+}
+
+async function createTomatoDownload() {
+  const bookId = props.initialBook?.bookId
+  if (rankImporting.value || !bookId) return
   rankImporting.value = true
   rankImportError.value = ''
   try {
-    const url = new URL(rankImportUrl.value.trim())
-    if (!['http:', 'https:'].includes(url.protocol)) throw new Error('只支持 http 或 https 书籍页面。')
-    const host = url.hostname.toLowerCase()
-    if (!['fanqienovel.com', 'www.qimao.com'].includes(host)) throw new Error('当前只为番茄和七猫榜单提供公开页面尝试读取；其他网站请先下载 TXT 再导入。')
-    const proxy = `/novel-proxy/${host}${url.pathname}${url.search}`
-    const response = await fetch(proxy)
-    const raw = await response.text()
-    if (!response.ok) throw new Error(`读取书籍页面失败（HTTP ${response.status}）。`)
-    const text = htmlToNovelText(raw)
-    if (text.length < 500) throw new Error('页面没有读取到足够正文。请从平台下载 TXT 后导入，或在下方打开原文页面。')
-    const parsed = parseTxtBook(text, rankImportTitle.value.trim() || props.initialBook?.title || '榜单书籍')
-    if (parsed.chapters.length < 1 || parsed.chapters.every(item => item.text.length < 120)) throw new Error('页面只包含书籍信息，没有可拆解的章节正文。请下载 TXT 后导入。')
-    const project = createBreakdownProject(parsed, props.initialBook?.author || '')
-    store.value = { ...store.value, projects: [project, ...store.value.projects].slice(0, 30) }
-    if (!persist()) return
-    rankImportOpen.value = false
-    emit('clear-handoff')
-    openProject(project.id)
+    saveTomatoSettings(tomatoSettings.value)
+    tomatoPreview.value = await previewTomatoBook(tomatoSettings.value, bookId)
+    const created = await createTomatoJob(tomatoSettings.value, bookId, tomatoRangeStart.value, tomatoRangeEnd.value)
+    tomatoJob.value = { id: created.id, bookId: created.bookId, title: tomatoPreview.value.title, author: tomatoPreview.value.author, state: created.state, message: '', progress: { current: 0, total: tomatoPreview.value.chapterCount, percent: 0 }, updatedMs: Date.now() }
+    tomatoStatus.value = '任务已提交，番茄下载器正在处理'
+    await pollTomatoJob(created.id)
   } catch (error) { rankImportError.value = error instanceof Error ? error.message : String(error) }
   finally { rankImporting.value = false }
 }
@@ -537,7 +602,7 @@ function exportMarkdown(project: BreakdownProject) {
 // 拆解引擎
 // ---------------------------------------------------------------------------
 
-onBeforeUnmount(() => controller.value?.abort())
+onBeforeUnmount(() => { controller.value?.abort(); stopTomatoPolling() })
 
 function stopRun() {
   controller.value?.abort()
@@ -662,6 +727,22 @@ async function generateReport() {
 .bd-card-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 6px; }
 .bd-card time { color: #b3a8b5; font-size: 11px; }
 .bd-error { margin: 10px 0 0; color: #b3283d; font-size: 12px; }
+.tomato-settings-grid, .tomato-range { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.tomato-settings-grid label, .tomato-range label { display: grid; gap: 5px; color: var(--muted); font-size: 11px; }
+.tomato-settings-grid input, .tomato-range input { width: 100%; box-sizing: border-box; padding: 8px 9px; border: 1px solid var(--line); border-radius: 8px; background: #fff; font: inherit; }
+.tomato-actions { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
+.tomato-ok { color: #237a3b; font-size: 11px; }
+.tomato-bad { color: #b3283d; font-size: 11px; line-height: 1.5; }
+.tomato-preview, .tomato-job, .tomato-downloads { display: grid; gap: 6px; margin: 10px 0; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fffafc; }
+.tomato-preview strong, .tomato-job strong, .tomato-downloads strong { color: #6c3554; font-size: 13px; }
+.tomato-preview span, .tomato-preview p, .tomato-job small { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.tomato-preview p { max-height: 74px; overflow: auto; }
+.tomato-job > div:first-child { display: flex; justify-content: space-between; gap: 8px; }
+.tomato-job > div:first-child span { color: var(--accent); font-size: 11px; }
+.tomato-progress { height: 6px; border-radius: 99px; background: #f0e9ec; overflow: hidden; }
+.tomato-progress i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--accent), var(--gold)); transition: width .3s; }
+.tomato-downloads a { color: var(--accent); font-size: 12px; text-decoration: none; }
+.tomato-downloads a:hover { text-decoration: underline; }
 
 /* 工作台 */
 .bd-work-head { padding: 18px 22px; border: 1px solid var(--line); border-radius: 18px; background: var(--paper); }

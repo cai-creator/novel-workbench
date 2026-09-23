@@ -1,14 +1,13 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
-/** 扫榜抓取用的白名单代理：浏览器直连番茄/七猫会被 CORS 拦下，dev 与 preview 都挂同一份规则。 */
+/** 扫榜数据与本机番茄下载器 API 代理。正文不在工作台内解析。 */
 function rankProxy() {
   return {
     '/rank-proxy/fanqienovel.com': { target: 'https://fanqienovel.com', changeOrigin: true, rewrite: (path: string) => path.replace(/^\/rank-proxy\/fanqienovel\.com/, '') },
     '/rank-proxy/www.qimao.com': { target: 'https://www.qimao.com', changeOrigin: true, rewrite: (path: string) => path.replace(/^\/rank-proxy\/www\.qimao\.com/, '') },
-    // 只代理扫榜已支持的两个站点；正文读取仍由用户主动发起，并不开放任意站点代理。
-    '/novel-proxy/fanqienovel.com': { target: 'https://fanqienovel.com', changeOrigin: true, rewrite: (path: string) => path.replace(/^\/novel-proxy\/fanqienovel\.com/, '') },
-    '/novel-proxy/www.qimao.com': { target: 'https://www.qimao.com', changeOrigin: true, rewrite: (path: string) => path.replace(/^\/novel-proxy\/www\.qimao\.com/, '') },
+    // Tomato-Novel-Downloader 默认监听 127.0.0.1:18423；代理仅用于本机服务，避免浏览器 CORS。
+    '/tomato-proxy': { target: 'http://127.0.0.1:18423', changeOrigin: true, rewrite: (path: string) => path.replace(/^\/tomato-proxy/, '') },
   }
 }
 

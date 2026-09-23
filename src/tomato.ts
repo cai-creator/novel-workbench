@@ -210,6 +210,42 @@ export async function listTomatoLibrary(settings: TomatoSettings): Promise<Tomat
   }))
 }
 
+function normalizeBookName(value: string) {
+  return value.toLowerCase().replace(/[\s《》“”"'‘’：:·,，。！？!?\-_/\\]/g, '')
+}
+
+/** 下载器完成后扫描可能还没结束，最多等待几轮再决定是否提示用户手动选择。 */
+export async function findLatestTomatoText(settings: TomatoSettings, title: string, attempts = 6): Promise<TomatoLibraryItem | null> {
+  const wanted = normalizeBookName(title)
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const files = (await listTomatoLibrary(settings)).filter(item => item.kind === 'file' && item.ext === 'txt')
+    const matched = files
+      .filter(item => wanted && normalizeBookName(item.name).includes(wanted))
+      .sort((a, b) => (b.modifiedMs || 0) - (a.modifiedMs || 0))
+    if (matched[0]) return matched[0]
+    if (attempt === attempts - 1 && files.length) return files.sort((a, b) => (b.modifiedMs || 0) - (a.modifiedMs || 0))[0]
+    await new Promise(resolve => setTimeout(resolve, 900))
+  }
+  return null
+}
+
+export async function fetchTomatoText(settings: TomatoSettings, relPath: string): Promise<Uint8Array> {
+  const headers = new Headers()
+  if (settings.password.trim()) headers.set('x-tomato-password', settings.password.trim())
+  let lastError: unknown
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await fetch(tomatoDownloadUrl(settings, relPath), { headers })
+      if (!response.ok) throw new Error(`下载 TXT 失败（HTTP ${response.status}）`)
+      return new Uint8Array(await response.arrayBuffer())
+    } catch (error) {
+      lastError = error
+      if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 450 * (attempt + 1)))
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('无法下载番茄 TXT 文件')
+}
+
 export function tomatoDownloadUrl(settings: TomatoSettings, relPath: string) {
   const encoded = relPath.split('/').filter(Boolean).map(segment => encodeURIComponent(segment)).join('/')
   return `${servicePrefix(settings)}/download/${encoded}`

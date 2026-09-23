@@ -232,7 +232,7 @@
         <div v-if="tomatoDownloads.length" class="tomato-downloads"><strong>可导入文件</strong><a v-for="item in tomatoDownloads" :key="item.relPath" :href="tomatoDownloadUrl(tomatoSettings, item.relPath)" target="_blank" rel="noreferrer">下载 {{ item.name }}</a></div>
         <label>项目名称<input v-model="rankImportTitle" maxlength="120" /></label>
         <p v-if="rankImportError" class="workflow-error" role="alert">{{ rankImportError }}</p>
-        <div class="modal-actions"><button class="secondary" @click="rankImportOpen = false">关闭</button><button class="primary" :disabled="rankImporting || !props.initialBook?.bookId" @click="createTomatoDownload">{{ rankImporting ? '创建中…' : tomatoJob ? '重新创建下载任务' : '预览并创建下载任务' }}</button></div>
+        <div class="modal-actions"><button class="secondary" @click="rankImportOpen = false">关闭</button><button class="primary" :disabled="rankImporting || tomatoImporting || !props.initialBook?.bookId" @click="createTomatoDownload">{{ rankImporting ? '创建中…' : tomatoImporting ? '自动导入中…' : tomatoJob ? '重新创建下载任务' : '预览并创建下载任务' }}</button></div>
       </section>
     </div>
   </div>
@@ -274,7 +274,10 @@ import {
 import { designSideStores } from './design-fixture'
 import {
   checkTomatoService,
+  clearTomatoJobSnapshot,
   createTomatoJob,
+  fetchTomatoText,
+  findLatestTomatoText,
   getTomatoJob,
   listTomatoLibrary,
   loadTomatoJobSnapshot,
@@ -346,6 +349,7 @@ const rankImportTitle = ref('')
 const rankImportError = ref('')
 const tomatoSettings = ref<TomatoSettings>(loadTomatoSettings())
 const tomatoChecking = ref(false)
+const tomatoImporting = ref(false)
 const tomatoConnected = ref(false)
 const tomatoStatus = ref('')
 const tomatoPreview = ref<TomatoBookPreview | null>(null)
@@ -505,8 +509,15 @@ async function pollTomatoJob(id: number) {
       tomatoJob.value = job
       saveTomatoJobSnapshot(job)
       if (job.state === 'Done') {
-        tomatoStatus.value = '下载完成，请下载 TXT 后导入拆书'
+        tomatoStatus.value = '下载完成，正在查找 TXT 并创建拆书项目'
         tomatoDownloads.value = (await listTomatoLibrary(tomatoSettings.value)).filter(item => item.kind === 'file' && item.ext === 'txt').sort((a, b) => (b.modifiedMs || 0) - (a.modifiedMs || 0)).slice(0, 8)
+        const item = await findLatestTomatoText(tomatoSettings.value, job.title || props.initialBook?.title || '')
+        if (item) {
+          tomatoDownloads.value = [item, ...tomatoDownloads.value.filter(existing => existing.relPath !== item.relPath)].slice(0, 8)
+          await importTomatoText(item, job)
+        } else {
+          tomatoStatus.value = '下载完成，但没有找到对应 TXT，请从下方文件库手动下载'
+        }
         return
       }
       if (['Failed', 'Canceled'].includes(job.state)) return
@@ -525,6 +536,34 @@ async function pollTomatoJob(id: number) {
     }
   }
   await poll()
+}
+
+async function importTomatoText(item: TomatoLibraryItem, job: TomatoJob) {
+  if (tomatoImporting.value) return
+  tomatoImporting.value = true
+  rankImportError.value = ''
+  try {
+    const bytes = await fetchTomatoText(tomatoSettings.value, item.relPath)
+    if (bytes.byteLength > 10 * 1024 * 1024) throw new Error('TXT 文件超过 10MB，请先在番茄下载器中分卷下载。')
+    const file = new File([bytes], item.name, { type: 'text/plain' })
+    const text = await readTxtText(file)
+    if (!text.trim()) throw new Error('下载的 TXT 文件为空，无法创建拆书项目。')
+    const parsed = parseTxtBook(text, job.title || props.initialBook?.title || item.name.replace(/\.[^.]+$/, ''))
+    if (parsed.chapters.length < 1 || parsed.chapters.every(chapter => chapter.text.length < 120)) throw new Error('TXT 没有识别到足够的章节正文，请检查下载器输出格式。')
+    const project = createBreakdownProject(parsed, job.author || props.initialBook?.author || '')
+    store.value = { ...store.value, projects: [project, ...store.value.projects].slice(0, 30) }
+    if (!persist()) return
+    clearTomatoJobSnapshot()
+    tomatoStatus.value = 'TXT 已导入，拆书项目已创建，接下来可以开始 AI 拆解'
+    rankImportOpen.value = false
+    emit('clear-handoff')
+    openProject(project.id)
+  } catch (error) {
+    rankImportError.value = error instanceof Error ? error.message : String(error)
+    tomatoStatus.value = 'TXT 自动导入失败，请从下方链接下载后手动导入'
+  } finally {
+    tomatoImporting.value = false
+  }
 }
 
 async function createTomatoDownload() {

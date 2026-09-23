@@ -277,8 +277,10 @@ import {
   createTomatoJob,
   getTomatoJob,
   listTomatoLibrary,
+  loadTomatoJobSnapshot,
   loadTomatoSettings,
   previewTomatoBook,
+  saveTomatoJobSnapshot,
   saveTomatoSettings,
   tomatoDownloadUrl,
   type TomatoBookPreview,
@@ -362,6 +364,11 @@ watch(() => props.initialBook, value => {
   tomatoDownloads.value = []
   tomatoRangeStart.value = undefined
   tomatoRangeEnd.value = undefined
+  const savedJob = value.bookId ? loadTomatoJobSnapshot(value.bookId) : null
+  if (savedJob) {
+    tomatoJob.value = savedJob
+    if (!['Done', 'Failed', 'Canceled'].includes(savedJob.state)) void pollTomatoJob(savedJob.id)
+  }
   rankImportOpen.value = true
 }, { immediate: true })
 
@@ -488,20 +495,36 @@ function stopTomatoPolling() {
 
 async function pollTomatoJob(id: number) {
   stopTomatoPolling()
-  try {
-    const job = await getTomatoJob(tomatoSettings.value, id)
-    if (!job) return
-    tomatoJob.value = job
-    if (job.state === 'Done') {
-      tomatoStatus.value = '下载完成，请下载 TXT 后导入拆书'
-      tomatoDownloads.value = (await listTomatoLibrary(tomatoSettings.value)).filter(item => item.kind === 'file' && item.ext === 'txt').sort((a, b) => (b.modifiedMs || 0) - (a.modifiedMs || 0)).slice(0, 8)
-      return
+  let retryCount = 0
+  const poll = async (): Promise<void> => {
+    try {
+      const job = await getTomatoJob(tomatoSettings.value, id)
+      if (!job) throw new Error('番茄下载器没有返回这个任务，可能已清理任务记录。')
+      retryCount = 0
+      tomatoConnected.value = true
+      tomatoJob.value = job
+      saveTomatoJobSnapshot(job)
+      if (job.state === 'Done') {
+        tomatoStatus.value = '下载完成，请下载 TXT 后导入拆书'
+        tomatoDownloads.value = (await listTomatoLibrary(tomatoSettings.value)).filter(item => item.kind === 'file' && item.ext === 'txt').sort((a, b) => (b.modifiedMs || 0) - (a.modifiedMs || 0)).slice(0, 8)
+        return
+      }
+      if (['Failed', 'Canceled'].includes(job.state)) return
+      tomatoStatus.value = `番茄下载器${tomatoStateLabel(job.state)}，正在同步进度`
+      tomatoPollTimer = window.setTimeout(() => void poll(), 1800)
+    } catch (error) {
+      retryCount += 1
+      tomatoConnected.value = false
+      if (retryCount <= 6) {
+        tomatoStatus.value = `番茄下载器连接中断，正在重试（${retryCount}/6）`
+        tomatoPollTimer = window.setTimeout(() => void poll(), Math.min(7000, 900 * retryCount))
+      } else {
+        tomatoStatus.value = '番茄下载器暂时无法连接，请确认服务仍在运行后点击检查连接'
+        rankImportError.value = error instanceof Error ? error.message : String(error)
+      }
     }
-    if (['Failed', 'Canceled'].includes(job.state)) return
-    tomatoPollTimer = window.setTimeout(() => void pollTomatoJob(id), 1800)
-  } catch (error) {
-    rankImportError.value = error instanceof Error ? error.message : String(error)
   }
+  await poll()
 }
 
 async function createTomatoDownload() {
@@ -514,6 +537,7 @@ async function createTomatoDownload() {
     tomatoPreview.value = await previewTomatoBook(tomatoSettings.value, bookId)
     const created = await createTomatoJob(tomatoSettings.value, bookId, tomatoRangeStart.value, tomatoRangeEnd.value)
     tomatoJob.value = { id: created.id, bookId: created.bookId, title: tomatoPreview.value.title, author: tomatoPreview.value.author, state: created.state, message: '', progress: { current: 0, total: tomatoPreview.value.chapterCount, percent: 0 }, updatedMs: Date.now() }
+    saveTomatoJobSnapshot(tomatoJob.value)
     tomatoStatus.value = '任务已提交，番茄下载器正在处理'
     await pollTomatoJob(created.id)
   } catch (error) { rankImportError.value = error instanceof Error ? error.message : String(error) }

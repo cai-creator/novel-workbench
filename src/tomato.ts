@@ -36,6 +36,7 @@ export interface TomatoLibraryItem {
 }
 
 const SETTINGS_KEY = 'novel-workbench-next/tomato-downloader-v1'
+const ACTIVE_JOB_KEY = 'novel-workbench-next/tomato-active-job-v1'
 export const defaultTomatoSettings: TomatoSettings = {
   baseUrl: 'http://127.0.0.1:18423',
   password: '',
@@ -61,6 +62,48 @@ export function saveTomatoSettings(settings: TomatoSettings) {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(normalized))
 }
 
+export function saveTomatoJobSnapshot(job: TomatoJob) {
+  try {
+    localStorage.setItem(ACTIVE_JOB_KEY, JSON.stringify({
+      id: job.id,
+      bookId: job.bookId,
+      title: job.title,
+      author: job.author,
+      state: job.state,
+      message: job.message,
+      progress: job.progress,
+      updatedMs: job.updatedMs,
+    }))
+  } catch { /* 任务状态保存失败不应中断下载 */ }
+}
+
+export function loadTomatoJobSnapshot(bookId?: string): TomatoJob | null {
+  try {
+    const raw = JSON.parse(localStorage.getItem(ACTIVE_JOB_KEY) || 'null') as Partial<TomatoJob> | null
+    if (!raw || typeof raw.id !== 'number' || (bookId && raw.bookId !== bookId)) return null
+    return {
+      id: raw.id,
+      bookId: String(raw.bookId || ''),
+      title: String(raw.title || ''),
+      author: String(raw.author || ''),
+      state: String(raw.state || 'Unknown'),
+      message: String(raw.message || ''),
+      progress: raw.progress && typeof raw.progress === 'object' ? {
+        current: Number(raw.progress.current) || 0,
+        total: Number(raw.progress.total) || 0,
+        percent: Number(raw.progress.percent) || 0,
+      } : { current: 0, total: 0, percent: 0 },
+      updatedMs: Number(raw.updatedMs) || 0,
+    }
+  } catch {
+    return null
+  }
+}
+
+export function clearTomatoJobSnapshot() {
+  try { localStorage.removeItem(ACTIVE_JOB_KEY) } catch { /* ignore */ }
+}
+
 function servicePrefix(settings: TomatoSettings) {
   const base = settings.baseUrl.trim().replace(/\/+$/, '') || defaultTomatoSettings.baseUrl
   // The bundled dev/preview proxy avoids browser CORS for the default local server.
@@ -76,12 +119,23 @@ async function tomatoRequest<T>(settings: TomatoSettings, path: string, init: Re
   const headers = new Headers(init.headers)
   headers.set('Accept', 'application/json')
   if (settings.password.trim()) headers.set('x-tomato-password', settings.password.trim())
-  const response = await fetch(endpoint(settings, path), { ...init, headers })
-  if (!response.ok) {
-    const detail = (await response.text()).trim().slice(0, 240)
-    throw new Error(`番茄下载器请求失败（HTTP ${response.status}）${detail ? `：${detail}` : ''}`)
+  let lastError: unknown
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await fetch(endpoint(settings, path), { ...init, headers })
+      if (!response.ok) {
+        const detail = (await response.text()).trim().slice(0, 240)
+        throw new Error(`番茄下载器请求失败（HTTP ${response.status}）${detail ? `：${detail}` : ''}`)
+      }
+      return await response.json() as T
+    } catch (error) {
+      lastError = error
+      if (init.signal?.aborted || error instanceof DOMException && error.name === 'AbortError') throw error
+      if (attempt < 2) await new Promise(resolve => window.setTimeout(resolve, 450 * (attempt + 1)))
+    }
   }
-  return await response.json() as T
+  if (lastError instanceof Error && /番茄下载器请求失败/.test(lastError.message)) throw lastError
+  throw new Error('无法连接番茄下载器，请确认服务仍在运行并检查地址、端口和密码。')
 }
 
 export async function checkTomatoService(settings: TomatoSettings) {

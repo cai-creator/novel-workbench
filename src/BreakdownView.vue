@@ -239,7 +239,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import type { ModelSettings } from './storage'
 import { requestChatCompletion } from './ai'
 import {
@@ -554,10 +554,20 @@ async function importTomatoText(item: TomatoLibraryItem, job: TomatoJob) {
     store.value = { ...store.value, projects: [project, ...store.value.projects].slice(0, 30) }
     if (!persist()) return
     clearTomatoJobSnapshot()
-    tomatoStatus.value = 'TXT 已导入，拆书项目已创建，接下来可以开始 AI 拆解'
+    tomatoStatus.value = 'TXT 已导入，拆书项目已创建'
     rankImportOpen.value = false
     emit('clear-handoff')
     openProject(project.id)
+    await nextTick()
+    if (!props.model.model.trim()) {
+      workError.value = '拆书项目已创建。请先配置文本模型，再点击“拆解本章”或批量拆解。'
+      return
+    }
+    const firstBatch = project.chapters.slice(0, batchCount.value)
+    if (firstBatch.length) {
+      tomatoStatus.value = `项目已创建，自动开始拆解前 ${firstBatch.length} 章`
+      void runBatch(firstBatch)
+    }
   } catch (error) {
     rankImportError.value = error instanceof Error ? error.message : String(error)
     tomatoStatus.value = 'TXT 自动导入失败，请从下方链接下载后手动导入'
